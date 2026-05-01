@@ -3,14 +3,6 @@
     "features": [
         {
             "type": "Feature",
-            "properties": {
-                "ref": "AEL",
-                "direction": "Up",
-                "from": "HOK",
-                "to": "KOW",
-                "name": "香港 ➔ 九龍",
-                "dist_km": 0
-            },
             "geometry": {
                 "type": "LineString",
                 "coordinates": [
@@ -191,18 +183,18 @@
                         22.304947
                     ]
                 ]
+            },
+            "properties": {
+                "ref": "AEL",
+                "direction": "Up",
+                "from": "HOK",
+                "to": "KOW",
+                "name": "香港 ➔ 九龍",
+                "dist_km": 0
             }
         },
         {
             "type": "Feature",
-            "properties": {
-                "ref": "AEL",
-                "direction": "Up",
-                "from": "KOW",
-                "to": "TSY",
-                "name": "九龍 ➔ 青衣",
-                "dist_km": 0
-            },
             "geometry": {
                 "type": "LineString",
                 "coordinates": [
@@ -679,18 +671,18 @@
                         22.358341
                     ]
                 ]
+            },
+            "properties": {
+                "ref": "AEL",
+                "direction": "Up",
+                "from": "KOW",
+                "to": "TSY",
+                "name": "九龍 ➔ 青衣",
+                "dist_km": 0
             }
         },
         {
             "type": "Feature",
-            "properties": {
-                "ref": "AEL",
-                "direction": "Up",
-                "from": "TSY",
-                "to": "AIR",
-                "name": "青衣 ➔ 機場",
-                "dist_km": 0
-            },
             "geometry": {
                 "type": "LineString",
                 "coordinates": [
@@ -1991,18 +1983,18 @@
                         22.315811
                     ]
                 ]
+            },
+            "properties": {
+                "ref": "AEL",
+                "direction": "Up",
+                "from": "TSY",
+                "to": "AIR",
+                "name": "青衣 ➔ 機場",
+                "dist_km": 0
             }
         },
         {
             "type": "Feature",
-            "properties": {
-                "ref": "AEL",
-                "direction": "Up",
-                "from": "AIR",
-                "to": "AWE",
-                "name": "機場 ➔ 博覽館",
-                "dist_km": 0
-            },
             "geometry": {
                 "type": "LineString",
                 "coordinates": [
@@ -2171,18 +2163,18 @@
                         22.321997
                     ]
                 ]
+            },
+            "properties": {
+                "ref": "AEL",
+                "direction": "Up",
+                "from": "AIR",
+                "to": "AWE",
+                "name": "機場 ➔ 博覽館",
+                "dist_km": 0
             }
         },
         {
             "type": "Feature",
-            "properties": {
-                "ref": "AEL",
-                "direction": "Down",
-                "from": "AEW",
-                "to": "AIR",
-                "name": "博覽館 ➔ 機場",
-                "dist_km": 0
-            },
             "geometry": {
                 "type": "LineString",
                 "coordinates": [
@@ -2327,18 +2319,18 @@
                         22.315821
                     ]
                 ]
+            },
+            "properties": {
+                "ref": "AEL",
+                "direction": "Down",
+                "from": "AWE",
+                "to": "AIR",
+                "name": "博覽館 ➔ 機場",
+                "dist_km": 0
             }
         },
         {
             "type": "Feature",
-            "properties": {
-                "ref": "AEL",
-                "direction": "Down",
-                "from": "AIR",
-                "to": "TSY",
-                "name": "機場 ➔ 青衣",
-                "dist_km": 0
-            },
             "geometry": {
                 "type": "LineString",
                 "coordinates": [
@@ -3719,18 +3711,18 @@
                         22.358341
                     ]
                 ]
+            },
+            "properties": {
+                "ref": "AEL",
+                "direction": "Down",
+                "from": "AIR",
+                "to": "TSY",
+                "name": "機場 ➔ 青衣",
+                "dist_km": 0
             }
         },
         {
             "type": "Feature",
-            "properties": {
-                "ref": "AEL",
-                "direction": "Down",
-                "from": "TSY",
-                "to": "KOW",
-                "name": "青衣 ➔ 九龍",
-                "dist_km": 0
-            },
             "geometry": {
                 "type": "LineString",
                 "coordinates": [
@@ -4231,18 +4223,18 @@
                         22.304912
                     ]
                 ]
+            },
+            "properties": {
+                "ref": "AEL",
+                "direction": "Down",
+                "from": "TSY",
+                "to": "KOW",
+                "name": "青衣 ➔ 九龍",
+                "dist_km": 0
             }
         },
         {
             "type": "Feature",
-            "properties": {
-                "ref": "AEL",
-                "direction": "Down",
-                "from": "KOW",
-                "to": "HOK",
-                "name": "九龍 ➔ 香港",
-                "dist_km": 0
-            },
             "geometry": {
                 "type": "LineString",
                 "coordinates": [
@@ -4435,6 +4427,14 @@
                         22.285016
                     ]
                 ]
+            },
+            "properties": {
+                "ref": "AEL",
+                "direction": "Down",
+                "from": "KOW",
+                "to": "HOK",
+                "name": "九龍 ➔ 香港",
+                "dist_km": 0
             }
         }
     ]
