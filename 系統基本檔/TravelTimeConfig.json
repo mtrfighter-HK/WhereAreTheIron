@@ -1,9 +1,9 @@
 {
   "TWL_UP": {
-    "TWH": 110, "KWH": 100, "KWF": 95, "LAK": 100, "MEF": 145, "LCK": 100, "CSW": 90, "SSP": 95, "MOK": 105, "YMT": 90, "JOR": 95, "TST": 110, "ADM": 190, "CEN": 120
+    "TWH": 110, "KWH": 100, "KWF": 95, "LAK": 100, "MEF": 145, "LCK": 100, "CSW": 90, "SSP": 95, "PRE": 80, "MOK": 105, "YMT": 90, "JOR": 95, "TST": 110, "ADM": 190, "CEN": 120
   },
   "TWL_DOWN": {
-    "ADM": 120, "TST": 190, "JOR": 110, "YMT": 95, "MOK": 90, "SSP": 105, "CSW": 95, "LCK": 90, "MEF": 100, "LAK": 145, "KWF": 100, "KWH": 95, "TWH": 100, "TSW": 110
+    "ADM": 120, "TST": 190, "JOR": 110, "YMT": 95, "MOK": 85, "PRE": 80, "SSP": 90, "CSW": 95, "LCK": 90, "MEF": 100, "LAK": 145, "KWF": 100, "KWH": 95, "TWH": 100, "TSW": 110
   },
   "TCL_UP": {
     "KOW": 140, "OLY": 125, "NAC": 110, "LAK": 260, "TSY": 150, "SUN": 390, "TUC": 400
