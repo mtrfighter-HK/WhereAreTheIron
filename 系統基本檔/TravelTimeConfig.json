@@ -30,6 +30,24 @@
       "NOP_QUB": 98, "QUB_YAT": 148, "YAT_TIK": 118, "TIK_TKO": 108, "TKO_HAH": 105,
       "HAH_POA": 98, "TKO_LHP": 240, "POA_HAH": 95, "HAH_TKO": 102, "LHP_TKO": 235,
       "TKO_TIK": 105, "TIK_YAT": 115, "YAT_QUB": 145, "QUB_NOP": 95
+    },
+    "TCL": {
+      "HOK_KOW": 125, "KOW_OLY": 95, "OLY_NAC": 85, "NAC_LAK": 120, "LAK_TSY": 210,
+      "TSY_SUN": 365, "SUN_TUC": 385,
+      "TUC_SUN": 380, "SUN_TSY": 360, "TSY_LAK": 205, "LAK_NAC": 115, "NAC_OLY": 82,
+      "OLY_KOW": 92, "KOW_HOK": 122
+    },
+    "AEL": {
+      "HOK_KOW": 110, "KOW_TSY": 360, "TSY_AIR": 845, "AIR_AWE": 125,
+      "AWE_AIR": 120, "AIR_TSY": 840, "TSY_KOW": 355, "KOW_HOK": 108
+    },
+    "SIL": {
+      "ADM_OCP": 245, "OCP_WCH": 95, "WCH_LET": 85, "LET_SOH": 95,
+      "SOH_LET": 92, "LET_WCH": 82, "WCH_OCP": 92, "OCP_ADM": 240
+    },
+    "DRL": {
+      "SUN_DIS": 215,
+      "DIS_SUN": 210
     }
   }
 }
