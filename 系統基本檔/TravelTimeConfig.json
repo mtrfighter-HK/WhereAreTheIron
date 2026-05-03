@@ -1,20 +1,35 @@
 {
-  "TWL_UP": {
-    "TWH": 110, "KWH": 100, "KWF": 95, "LAK": 100, "MEF": 145, "LCK": 100, "CSW": 90, "SSP": 95, "PRE": 80, "MOK": 105, "YMT": 90, "JOR": 95, "TST": 110, "ADM": 190, "CEN": 120
-  },
-  "TWL_DOWN": {
-    "ADM": 120, "TST": 190, "JOR": 110, "YMT": 95, "MOK": 85, "PRE": 80, "SSP": 90, "CSW": 95, "LCK": 90, "MEF": 100, "LAK": 145, "KWF": 100, "KWH": 95, "TWH": 100, "TSW": 110
-  },
-  "TCL_UP": {
-    "KOW": 140, "OLY": 125, "NAC": 110, "LAK": 260, "TSY": 150, "SUN": 390, "TUC": 400
-  },
-  "TCL_DOWN": {
-    "SUN": 400, "TSY": 390, "LAK": 150, "NAC": 260, "OLY": 115, "KOW": 125, "HOK": 145
-  },
-  "AEL_UP": {
-    "KOW": 145, "TSY": 410, "AIR": 760, "AWE": 120
-  },
-  "AEL_DOWN": {
-    "AIR": 125, "TSY": 760, "KOW": 410, "HOK": 145
+  "TRAVEL_TIME_CONFIG": {
+    "TWL": {
+      "TSW_TWH": 112, "TWH_KWH": 98, "KWH_KWF": 77, "KWF_LAK": 88, "LAK_MEF": 118,
+      "MEF_LCK": 87, "LCK_CSW": 82, "CSW_SSP": 87, "SSP_PRE": 92, "PRE_MOK": 68,
+      "MOK_YMT": 72, "YMT_JOR": 87, "JOR_TST": 77, "TST_ADM": 168, "ADM_CEN": 95,
+      "CEN_ADM": 92, "ADM_TST": 165, "TST_JOR": 75, "JOR_YMT": 85, "YMT_MOK": 70,
+      "MOK_PRE": 65, "PRE_SSP": 90, "SSP_CSW": 85, "CSW_LCK": 80, "LCK_MEF": 85,
+      "MEF_LAK": 115, "LAK_KWF": 85, "KWF_KWH": 75, "KWH_TWH": 95, "TWH_TSW": 110
+    },
+    "KTL": {
+      "TIK_YAT": 118, "YAT_LAT": 128, "LAT_KWT": 102, "KWT_NTK": 78, "NTK_KOB": 87,
+      "KOB_CHH": 108, "CHH_DIH": 98, "DIH_WTS": 88, "WTS_LOF": 93, "LOF_KOT": 88,
+      "KOT_SKM": 93, "SKM_PRE": 88, "PRE_MOK": 68, "MOK_YMT": 72, "YMT_HOM": 108,
+      "HOM_WHA": 98, "WHA_HOM": 95, "HOM_YMT": 105, "YMT_MOK": 70, "MOK_PRE": 65,
+      "PRE_SKM": 85, "SKM_KOT": 90, "KOT_LOF": 85, "LOF_WTS": 90, "WTS_DIH": 85,
+      "DIH_CHH": 95, "CHH_KOB": 105, "KOB_NTK": 85, "NTK_KWT": 75, "KWT_LAT": 100,
+      "LAT_YAT": 125, "YAT_TIK": 115
+    },
+    "ISL": {
+      "KET_HKU": 118, "HKU_SYP": 92, "SYP_SHW": 113, "SHW_CEN": 82, "CEN_ADM": 88,
+      "ADM_WAC": 82, "WAC_CAB": 87, "CAB_TIH": 78, "TIH_FOH": 72, "FOH_NOP": 88,
+      "NOP_QUB": 82, "QUB_TAK": 88, "TAK_SWH": 78, "SWH_SKW": 78, "SKW_HFC": 158,
+      "HFC_CHW": 128, "CHW_HFC": 125, "HFC_SKW": 155, "SKW_SWH": 75, "SWH_TAK": 75,
+      "TAK_QUB": 85, "QUB_NOP": 80, "NOP_FOH": 85, "FOH_TIH": 70, "TIH_CAB": 75,
+      "CAB_WAC": 85, "WAC_ADM": 80, "ADM_CEN": 85, "CEN_SHW": 80, "SHW_SYP": 110,
+      "SYP_HKU": 90, "HKU_KET": 115
+    },
+    "TKL": {
+      "NOP_QUB": 98, "QUB_YAT": 148, "YAT_TIK": 118, "TIK_TKO": 108, "TKO_HAH": 105,
+      "HAH_POA": 98, "TKO_LHP": 240, "POA_HAH": 95, "HAH_TKO": 102, "LHP_TKO": 235,
+      "TKO_TIK": 105, "TIK_YAT": 115, "YAT_QUB": 145, "QUB_NOP": 95
+    }
   }
 }
