@@ -2,14 +2,14 @@ name: MTR Train Auto Tracker
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # 每 15 分鐘執行一次
-  workflow_dispatch:       # 允許你手動按按鈕執行
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 jobs:
   run-tracker:
     runs-on: ubuntu-latest
     permissions:
-      contents: write      # 給予腳本寫入檔案並 push 的權限
+      contents: write
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v3
@@ -23,12 +23,13 @@ jobs:
         run: pip install requests
 
       - name: Run Script
-        run: python tracker.py
+        # 注意這裡：要加上資料夾路徑才能執行到該檔案
+        run: python "數據儲存檔/tracker.py"
 
       - name: Commit and Push changes
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add daily_stats.json
+          git add .
           git commit -m "自動更新班次統計: $(date)" || exit 0
           git push
