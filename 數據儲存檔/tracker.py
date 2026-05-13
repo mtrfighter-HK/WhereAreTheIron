@@ -11,7 +11,7 @@ STATS_FILE = os.path.join(BASE_DIR, "daily_stats.json")
 API_URL = "https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php"
 
 # 你想統計哪些路線？只需在此清單加入代碼
-TARGET_LINES = ["TWL"]
+TARGET_LINES = line_config.get_all_line_codes()
 
 def fetch_with_retry(params, retries=3):
     """帶重試機制的 API 請求"""
