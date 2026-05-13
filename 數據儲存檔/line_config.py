@@ -18,8 +18,8 @@ MTR_SEGMENTS = {
     ],
     "KTL": [ # 觀塘綫
         ("WHA", "HOM"), ("HOM", "YMT"), ("YMT", "MOK"), ("MOK", "PRE"),
-        ("PRE", "KOT"), ("KOT", "LOF"), ("LOF", "WTS"), ("WTS", "CHH"),
-        ("CHH", "KBD"), ("KBD", "NTK"), ("NTK", "KOW"), ("KOW", "LAT"),
+        ("PRE", "SKM"), ("SKM", "KOT"), ("KOT", "LOF"), ("LOF", "WTS"), ("WTS", "DIH"), ("DIH", "CHH"),
+        ("CHH", "KOB"), ("KOB", "NTK"), ("NTK", "KWT"), ("KWT", "LAT"),
         ("LAT", "YAT"), ("YAT", "TIK")
     ],
     "TKL": [ # 將軍澳綫 (含分支)
