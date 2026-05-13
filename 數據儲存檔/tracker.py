@@ -24,21 +24,24 @@ def fetch_with_retry(params, retries=3):
             time.sleep(2)
     return None
 
+# tracker.py 部分片段修改
+
 def get_line_train_count(line_code):
-    """統計單一條路線的在線列車數"""
     unique_trains = 0
+    # 直接從 config 獲取已經定義好的區間（包含分支）
     segments = line_config.get_segments(line_code)
     
     for direction in ['UP', 'DOWN']:
         for (start, end) in segments:
-            # 往荃灣 (UP) 看後方車站，往中環 (DOWN) 看前方車站
+            # 決定要向哪一個站請求 API 數據
             target_sta = end if direction == 'UP' else start
             data = fetch_with_retry({'line': line_code, 'sta': target_sta})
             
             if data and data.get('status') == 1:
                 data_key = f"{line_code}-{target_sta}"
                 trains = data.get('data', {}).get(data_key, {}).get(direction, [])
-                # 判定邏輯：ttnt 在 3 分鐘內視為在該區間運行
+                
+                # 判定邏輯維持不變：3 分鐘內有車即代表該區間有一班車
                 if trains and 0 < int(trains[0]['ttnt']) <= 3:
                     unique_trains += 1
     return unique_trains
