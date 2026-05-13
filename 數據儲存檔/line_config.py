@@ -36,7 +36,7 @@ MTR_SEGMENTS = {
     ],
     "EAL": [ # 東鐵綫 (含分支)
         ("ADM", "EXC"), ("EXC", "HUH"), ("HUH", "MKK"), ("MKK", "KOT"),
-        ("KOT", "TAW"), ("TAW", "SHT"), ("SHT", "FOT"), ("FOT", "RAC"), # RAC 是火炭/馬場，視乎當日運行
+        ("KOT", "TAW"), ("TAW", "SHT"), ("SHT", "FOT"), ("FOT", "UNI"), ("FOT", "RAC"), # RAC 是火炭/馬場，視乎當日運行
         ("RAC", "UNI"), ("UNI", "TAP"), ("TAP", "TWO"), ("TWO", "FAN"),
         ("FAN", "SHS"),
         ("SHS", "LOW"), # 往羅湖分支
@@ -45,10 +45,10 @@ MTR_SEGMENTS = {
     "TML": [ # 屯馬綫
         ("WKS", "MOS"), ("MOS", "HEO"), ("HEO", "TSH"), ("TSH", "SHM"),
         ("SHM", "CIO"), ("CIO", "STW"), ("STW", "CKW"), ("CKW", "TAW"),
-        ("TAW", "HIK"), ("HIK", "DIH"), ("DIH", "TKW"), ("TKW", "SUW"),
-        ("SUW", "KAT"), ("KAT", "HOM"), ("HOM", "HUH"), ("HUH", "ETS"),
+        ("TAW", "HIK"), ("HIK", "DIH"), ("DIH", "KAT"), ("KAT", "SUW"),
+        ("SUW", "TKW"), ("TKW", "HOM"), ("HOM", "HUH"), ("HUH", "ETS"),
         ("ETS", "AUS"), ("AUS", "NAC"), ("NAC", "MEF"), ("MEF", "TWW"),
-        ("TWW", "KSR"), ("KSR", "YUL"), ("YUL", "LOP"), ("LOP", "TUM")
+        ("TWW", "KSR"), ("KSR", "YUL"), ("YUL", "LOP"), ("LOP", "TIS"), ("TIS", "SIH"), ("SIH", "TUM")
     ]
 }
 
