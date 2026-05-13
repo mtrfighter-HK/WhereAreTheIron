@@ -34,6 +34,9 @@ MTR_SEGMENTS = {
     "AEL": [ # 機場快綫
         ("HOK", "KOW"), ("KOW", "TSY"), ("TSY", "AIR"), ("AIR", "AWE")
     ],
+    "SIL": [ # 南港島綫󠄁
+        ("ADM", "OCP"), ("OCP", "WCH"), ("WCH", "LET"), ("LET", "SOH")
+    ],
     "EAL": [ # 東鐵綫 (含分支)
         ("ADM", "EXC"), ("EXC", "HUH"), ("HUH", "MKK"), ("MKK", "KOT"),
         ("KOT", "TAW"), ("TAW", "SHT"), ("SHT", "FOT"), ("FOT", "UNI"), ("FOT", "RAC"), # RAC 是火炭/馬場，視乎當日運行
