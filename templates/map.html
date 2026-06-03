@@ -41,7 +41,7 @@
         }).addTo(map);
 
         // ==================== 載入車站點 ====================
-        fetch('/系統基本檔/StationLocation_2026_06.geojson')
+        fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(response => response.json())
             .then(data => {
                 L.geoJSON(data, {
@@ -60,11 +60,12 @@
                         layer.bindTooltip(name, {direction: "top"});
                     }
                 }).addTo(map);
+                console.log("✅ 車站點載入成功");
             })
-            .catch(err => console.error("站點載入失敗", err));
+            .catch(err => console.error("❌ 車站點載入失敗", err));
 
         // ==================== 載入荃灣線軌道 ====================
-        fetch('/路線軌道檔/Track.TsuenWanLine.geojson')
+        fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(response => response.json())
             .then(data => {
                 L.geoJSON(data, {
@@ -76,10 +77,9 @@
                         };
                     }
                 }).addTo(map);
+                console.log("✅ 荃灣線軌道載入成功");
             })
-            .catch(err => console.error("路線載入失敗", err));
-
-        console.log("地圖 + 路線 + 站點載入中...");
+            .catch(err => console.error("❌ 路線載入失敗", err));
     </script>
 </body>
 </html>
