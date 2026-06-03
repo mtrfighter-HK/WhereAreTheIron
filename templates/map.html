@@ -6,10 +6,25 @@
     <title>港鐵實時地圖</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin:0; padding:0; font-family: Arial; }
+        body { margin:0; padding:0; }
         #map { height: 100vh; width: 100%; }
-        .title { position: absolute; top: 15px; left: 15px; z-index: 1000; background: white; padding: 12px 18px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 19px; font-weight: bold; }
-        .back-btn { position: absolute; top: 15px; right: 15px; z-index: 1000; background: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 17px; text-decoration: none; color: black; }
+        .title { 
+            position: absolute; top: 15px; left: 15px; z-index: 1000; 
+            background: rgba(255,255,255,0.95); padding: 12px 18px; 
+            border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+            font-size: 19px; font-weight: bold;
+        }
+        .back-btn {
+            position: absolute; top: 15px; right: 15px; z-index: 1000;
+            background: white; padding: 10px 16px; border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 17px;
+            text-decoration: none; color: black;
+        }
+        .leaflet-popup-content {
+            font-size: 15.5px !important;
+            line-height: 1.6;
+            min-width: 180px;
+        }
     </style>
 </head>
 <body>
@@ -19,53 +34,54 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        var map = L.map('map').setView([22.3193, 114.1694], 11);
+        var map = L.map('map').setView([22.3193, 114.1694], 12);
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        // ==================== 載入荃灣線軌道 ====================
+        // ==================== 1. 先載入軌道路線（放最底層） ====================
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
-            .then(r => {
-                if (!r.ok) throw new Error("路線檔載入失敗 " + r.status);
-                return r.json();
-            })
+            .then(response => response.json())
             .then(data => {
                 L.geoJSON(data, {
-                    style: { color: "#ed1d24", weight: 5, opacity: 0.7 }
-                }).addTo(map);
-                console.log("✅ 荃灣線軌道載入成功");
-            })
-            .catch(err => {
-                console.error(err);
-                alert("路線載入失敗，請檢查路徑");
-            });
-
-        // ==================== 載入車站點 ====================
-        fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
-            .then(r => {
-                if (!r.ok) throw new Error("站點檔載入失敗 " + r.status);
-                return r.json();
-            })
-            .then(data => {
-                L.geoJSON(data, {
-                    filter: feature => feature.properties.StationCode !== "NIL",
-                    pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-                        radius: 5, color: "#333", fillColor: "#fff", fillOpacity: 0.9, weight: 3
-                    }),
-                    onEachFeature: (feature, layer) => {
-                        var name = feature.properties["StationName:zh"] || "未知站";
-                        layer.bindPopup(`<b>${name}</b><br>正在載入 ttnt...`);
-                        layer.bindTooltip(name);
+                    style: function(feature) {
+                        return {
+                            color: "#ed1d24",
+                            weight: 5,
+                            opacity: 0.7
+                        };
                     }
                 }).addTo(map);
-                console.log("✅ 車站點載入成功");
-            })
-            .catch(err => {
-                console.error(err);
-                alert("車站點載入失敗，請檢查路徑");
             });
+
+        // ==================== 2. 再載入車站點（放在路線上面） ====================
+        fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
+            .then(response => response.json())
+            .then(data => {
+                L.geoJSON(data, {
+                    filter: function(feature) {
+                        // 隱藏 StationCode 為 NIL 的車站
+                        return feature.properties.StationCode !== "NIL";
+                    },
+                    pointToLayer: function(feature, latlng) {
+                        return L.circleMarker(latlng, {
+                            radius: 5,
+                            color: "#333333",
+                            fillColor: "#ffffff",
+                            fillOpacity: 0.9,
+                            weight: 3
+                        });
+                    },
+                    onEachFeature: function(feature, layer) {
+                        var name = feature.properties["StationName:zh"] || "未知站";
+                        layer.bindPopup(`<b>${name}</b><br>正在載入 ttnt...`);
+                        layer.bindTooltip(name, {direction: "top"});
+                    }
+                }).addTo(map);
+            });
+
+        console.log("地圖載入完成");
     </script>
 </body>
 </html>
