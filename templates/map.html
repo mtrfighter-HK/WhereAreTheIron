@@ -40,8 +40,8 @@
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        // ==================== 載入站點 GeoJSON ====================
-        fetch('/static/StationLocation_2026_06.geojson')
+        // ==================== 載入車站點 ====================
+        fetch('/系統基本檔/StationLocation_2026_06.geojson')
             .then(response => response.json())
             .then(data => {
                 L.geoJSON(data, {
@@ -55,29 +55,31 @@
                         });
                     },
                     onEachFeature: function(feature, layer) {
-                        var name = feature.properties["StationName:zh"] || feature.properties.StationName || "未知站";
+                        var name = feature.properties["StationName:zh"] || "未知站";
                         layer.bindPopup(`<b>${name}</b><br>正在載入 ttnt...`);
                         layer.bindTooltip(name, {direction: "top"});
                     }
                 }).addTo(map);
-            });
+            })
+            .catch(err => console.error("站點載入失敗", err));
 
-        // ==================== 載入荃灣線軌道 GeoJSON ====================
-        fetch('/static/Track.TsuenWanLine.geojson')
+        // ==================== 載入荃灣線軌道 ====================
+        fetch('/路線軌道檔/Track.TsuenWanLine.geojson')
             .then(response => response.json())
             .then(data => {
                 L.geoJSON(data, {
                     style: function(feature) {
                         return {
-                            color: "#ed1d24",   // 荃灣線紅色
+                            color: "#ed1d24",
                             weight: 5,
                             opacity: 0.7
                         };
                     }
                 }).addTo(map);
-            });
+            })
+            .catch(err => console.error("路線載入失敗", err));
 
-        console.log("地圖 + 路線 + 站點已載入");
+        console.log("地圖 + 路線 + 站點載入中...");
     </script>
 </body>
 </html>
