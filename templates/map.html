@@ -36,51 +36,15 @@
     <script>
         var map = L.map('map').setView([22.3193, 114.1694], 12);
 
-        // === 白色 OpenStreetMap 底圖 ===
+        // === 標準白色 OpenStreetMap 底圖 ===
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        // ==================== 1. 載入荃灣線軌道 ====================
+        // ==================== 載入荃灣線軌道 ====================
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(response => response.json())
             .then(data => {
                 L.geoJSON(data, {
                     style: function(feature) {
-                        return {
-                            color: "#ed1d24",
-                            weight: 5,
-                            opacity: 0.7
-                        };
-                    }
-                }).addTo(map);
-            });
-
-        // ==================== 2. 載入車站點 ====================
-        fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
-            .then(response => response.json())
-            .then(data => {
-                L.geoJSON(data, {
-                    filter: function(feature) {
-                        return feature.properties.StationCode !== "NIL";
-                    },
-                    pointToLayer: function(feature, latlng) {
-                        return L.circleMarker(latlng, {
-                            radius: 5,
-                            color: "#333333",
-                            fillColor: "#ffffff",
-                            fillOpacity: 0.9,
-                            weight: 3
-                        });
-                    },
-                    onEachFeature: function(feature, layer) {
-                        var name = feature.properties["StationName:zh"] || "未知站";
-                        var code = feature.properties.StationCode || "";
-                        layer.bindPopup(`<b>\( {name} ( \){code})</b><br>正在載入 ttnt...`);
-                        layer.bindTooltip(name, {direction: "top"});
-                    }
-                }).addTo(map);
-            });
-    </script>
-</body>
-</html>
+                        return { color: "#ed
