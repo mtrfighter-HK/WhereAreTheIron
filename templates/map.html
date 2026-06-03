@@ -40,11 +40,30 @@
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        // ==================== 載入車站點 ====================
+        // ==================== 1. 先載入軌道路線（放最底層） ====================
+        fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
+            .then(response => response.json())
+            .then(data => {
+                L.geoJSON(data, {
+                    style: function(feature) {
+                        return {
+                            color: "#ed1d24",
+                            weight: 5,
+                            opacity: 0.7
+                        };
+                    }
+                }).addTo(map);
+            });
+
+        // ==================== 2. 再載入車站點（放在路線上面） ====================
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(response => response.json())
             .then(data => {
                 L.geoJSON(data, {
+                    filter: function(feature) {
+                        // 隱藏 StationCode 為 NIL 的車站
+                        return feature.properties.StationCode !== "NIL";
+                    },
                     pointToLayer: function(feature, latlng) {
                         return L.circleMarker(latlng, {
                             radius: 5,
@@ -60,26 +79,9 @@
                         layer.bindTooltip(name, {direction: "top"});
                     }
                 }).addTo(map);
-                console.log("✅ 車站點載入成功");
-            })
-            .catch(err => console.error("❌ 車站點載入失敗", err));
+            });
 
-        // ==================== 載入荃灣線軌道 ====================
-        fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
-            .then(response => response.json())
-            .then(data => {
-                L.geoJSON(data, {
-                    style: function(feature) {
-                        return {
-                            color: "#ed1d24",
-                            weight: 5,
-                            opacity: 0.7
-                        };
-                    }
-                }).addTo(map);
-                console.log("✅ 荃灣線軌道載入成功");
-            })
-            .catch(err => console.error("❌ 路線載入失敗", err));
+        console.log("地圖載入完成");
     </script>
 </body>
 </html>
