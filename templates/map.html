@@ -9,20 +9,21 @@
         body { margin:0; padding:0; }
         #map { height: 100vh; width: 100%; }
         .title { 
-            position: absolute; top: 10px; left: 10px; z-index: 1000; 
-            background: rgba(255,255,255,0.95); padding: 10px 15px; 
-            border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            font-size: 18px; font-weight: bold;
+            position: absolute; top: 15px; left: 15px; z-index: 1000; 
+            background: rgba(255,255,255,0.95); padding: 12px 18px; 
+            border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+            font-size: 19px; font-weight: bold;
         }
         .back-btn {
-            position: absolute; top: 10px; right: 10px; z-index: 1000;
-            background: white; padding: 8px 15px; border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2); font-size: 16px;
+            position: absolute; top: 15px; right: 15px; z-index: 1000;
+            background: white; padding: 10px 16px; border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 17px;
             text-decoration: none; color: black;
         }
         .leaflet-popup-content {
-            font-size: 16px !important;
-            line-height: 1.6;
+            font-size: 16.5px !important;
+            line-height: 1.7;
+            min-width: 260px;
         }
     </style>
 </head>
@@ -39,8 +40,26 @@
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        // 之後會載入你嘅 GeoJSON
-        console.log("地圖已載入");
+        // 中環站（加大顯示）
+        L.circleMarker([22.2815, 114.1600], {
+            radius: 9,
+            color: "#333333",
+            fillColor: "#ffffff",
+            fillOpacity: 0.9,
+            weight: 3
+        }).addTo(map)
+          .bindPopup(`
+            <b>中環站 (CEN)</b><br>
+            上行：載入中...<br>
+            下行：載入中...<br>
+            <small>最後更新：剛剛</small>
+          `, {
+              maxWidth: 320,
+              className: 'custom-popup'
+          })
+          .bindTooltip("中環站", {direction: "top"});
+
+        // 可以之後再加其他站點
     </script>
 </body>
 </html>
