@@ -23,7 +23,7 @@
         .leaflet-popup-content {
             font-size: 15.5px !important;
             line-height: 1.6;
-            min-width: 180px;
+            min-width: 200px;
         }
     </style>
 </head>
@@ -40,30 +40,21 @@
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        // ==================== 1. 先載入軌道路線（放最底層） ====================
+        // ==================== 荃灣線軌道 ====================
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
                 L.geoJSON(data, {
-                    style: function(feature) {
-                        return {
-                            color: "#ed1d24",
-                            weight: 5,
-                            opacity: 0.7
-                        };
-                    }
+                    style: { color: "#ed1d24", weight: 5, opacity: 0.7 }
                 }).addTo(map);
             });
 
-        // ==================== 2. 再載入車站點（放在路線上面） ====================
+        // ==================== 車站點 ====================
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
                 L.geoJSON(data, {
-                    filter: function(feature) {
-                        // 隱藏 StationCode 為 NIL 的車站
-                        return feature.properties.StationCode !== "NIL";
-                    },
+                    filter: feature => feature.properties.StationCode !== "NIL",
                     pointToLayer: function(feature, latlng) {
                         return L.circleMarker(latlng, {
                             radius: 5,
@@ -75,13 +66,11 @@
                     },
                     onEachFeature: function(feature, layer) {
                         var name = feature.properties["StationName:zh"] || "未知站";
-                        layer.bindPopup(`<b>${name}</b><br>正在載入 ttnt...`);
-                        layer.bindTooltip(name, {direction: "top"});
+                        var code = feature.properties.StationCode || "";
+                        layer.bindPopup(`<b>\( {name} ( \){code})</b><br>上行：載入中...<br>下行：載入中...`);
                     }
                 }).addTo(map);
             });
-
-        console.log("地圖載入完成");
     </script>
 </body>
 </html>
