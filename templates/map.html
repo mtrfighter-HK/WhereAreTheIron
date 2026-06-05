@@ -40,16 +40,16 @@
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        // ==================== 1. 軌道路線 (最底層) ====================
+        // ==================== 荃灣線軌道 ====================
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(r => r.json())
             .then(data => {
                 L.geoJSON(data, {
-                    style: { color: "#ed1d24", weight: 5, opacity: 0.65 }
+                    style: { color: "#ed1d24", weight: 5, opacity: 0.7 }
                 }).addTo(map);
             });
 
-        // ==================== 2. 車站點 (上層) ====================
+        // ==================== 車站點 ====================
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(r => r.json())
             .then(data => {
@@ -65,7 +65,7 @@
                         });
                     },
                     onEachFeature: function(feature, layer) {
-                        var zhName = feature.properties["StationName:zh"] || feature.properties.StationName || "未知站";
+                        var zhName = feature.properties["StationName:zh"] || "未知站";
                         var code = feature.properties.StationCode || "";
                         layer.bindPopup(`<b>\( {zhName}</b> ( \){code})<br>上行：載入中...<br>下行：載入中...`);
                     }
