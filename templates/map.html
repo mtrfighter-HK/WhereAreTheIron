@@ -8,9 +8,23 @@
     <style>
         body { margin:0; padding:0; }
         #map { height: 100vh; width: 100%; }
-        .title { position: absolute; top: 15px; left: 15px; z-index: 1000; background: rgba(255,255,255,0.95); padding: 12px 18px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 19px; font-weight: bold; }
-        .back-btn { position: absolute; top: 15px; right: 15px; z-index: 1000; background: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 17px; text-decoration: none; color: black; }
-        .leaflet-popup-content { font-size: 16px !important; line-height: 1.6; min-width: 220px; }
+        .title { 
+            position: absolute; top: 15px; left: 15px; z-index: 1000; 
+            background: rgba(255,255,255,0.95); padding: 12px 18px; 
+            border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+            font-size: 19px; font-weight: bold;
+        }
+        .back-btn {
+            position: absolute; top: 15px; right: 15px; z-index: 1000;
+            background: white; padding: 10px 16px; border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 17px;
+            text-decoration: none; color: black;
+        }
+        .leaflet-popup-content {
+            font-size: 15.5px !important;
+            line-height: 1.6;
+            min-width: 200px;
+        }
     </style>
 </head>
 <body>
@@ -29,24 +43,32 @@
         // 軌道
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(r => r.json())
-            .then(data => L.geoJSON(data, {style: {color: "#ed1d24", weight: 5, opacity: 0.7}}).addTo(map));
+            .then(data => {
+                L.geoJSON(data, {
+                    style: { color: "#ed1d24", weight: 5, opacity: 0.7 }
+                }).addTo(map);
+            });
 
         // 車站點
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(r => r.json())
             .then(data => {
                 L.geoJSON(data, {
-                    filter: f => f.properties.StationCode !== "NIL",
-                    pointToLayer: (f, latlng) => L.circleMarker(latlng, {
-                        radius: 5, color: "#333", fillColor: "#fff", fillOpacity: 0.9, weight: 3
-                    }),
+                    filter: feature => feature.properties.StationCode !== "NIL",
+                    pointToLayer: function(feature, latlng) {
+                        return L.circleMarker(latlng, {
+                            radius: 5,
+                            color: "#333333",
+                            fillColor: "#ffffff",
+                            fillOpacity: 0.9,
+                            weight: 3
+                        });
+                    },
                     onEachFeature: function(feature, layer) {
-                        console.log("站點屬性:", feature.properties); // Debug 用
-                        var name = feature.properties["StationName:zh"] || 
-                                   feature.properties.StationName || 
-                                   "未知站";
+                        var zhName = feature.properties["StationName:zh"] || feature.properties.StationName || "未知站";
                         var code = feature.properties.StationCode || "";
-                        layer.bindPopup(`<b>\( {name}</b> ( \){code})<br>上行：載入中...<br>下行：載入中...`);
+                        var popupContent = "<b>" + zhName + "</b> (" + code + ")<br>上行：載入中...<br>下行：載入中...";
+                        layer.bindPopup(popupContent);
                     }
                 }).addTo(map);
             });
