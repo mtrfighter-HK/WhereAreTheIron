@@ -28,12 +28,11 @@ conn.commit()
 def background_collector():
     while True:
         try:
-            # 擴大收集範圍
             stations = [
-                ("TWL", "TSW"), ("TWL", "KWH"), ("TWL", "KWF"), ("TWL", "LAK"),
+                ("TWL", "TSW"), ("TWL", "KWH"), ("TWL", "TWH"), ("TWL", "LAK"),
                 ("TWL", "MEF"), ("TWL", "LCK"), ("TWL", "CSW"), ("TWL", "SSP"),
                 ("TWL", "PRE"), ("TWL", "MOK"), ("TWL", "YMT"), ("TWL", "JOR"),
-                ("TWL", "TSI"), ("TWL", "ADM"), ("TWL", "CEN"),
+                ("TWL", "TST"), ("TWL", "ADM"), ("TWL", "CEN"),   # 已修正
                 ("ISL", "CEN"), ("ISL", "ADM"), ("ISL", "WAC"), ("ISL", "CAB")
             ]
             
@@ -55,7 +54,6 @@ def background_collector():
                 except:
                     pass
             conn.commit()
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] 收集完成")
         except:
             pass
         time.sleep(60)
