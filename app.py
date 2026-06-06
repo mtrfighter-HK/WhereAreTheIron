@@ -28,10 +28,15 @@ conn.commit()
 def background_collector():
     while True:
         try:
+            # 擴大收集範圍
             stations = [
-                ("TWL", "TSW"), ("TWL", "CEN"), ("TWL", "ADM"),
-                ("ISL", "CEN"), ("ISL", "ADM")
+                ("TWL", "TSW"), ("TWL", "KWH"), ("TWL", "KWF"), ("TWL", "LAK"),
+                ("TWL", "MEF"), ("TWL", "LCK"), ("TWL", "CSW"), ("TWL", "SSP"),
+                ("TWL", "PRE"), ("TWL", "MOK"), ("TWL", "YMT"), ("TWL", "JOR"),
+                ("TWL", "TSI"), ("TWL", "ADM"), ("TWL", "CEN"),
+                ("ISL", "CEN"), ("ISL", "ADM"), ("ISL", "WAC"), ("ISL", "CAB")
             ]
+            
             for line, sta in stations:
                 try:
                     url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={line}&sta={sta}"
@@ -50,6 +55,7 @@ def background_collector():
                 except:
                     pass
             conn.commit()
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 收集完成")
         except:
             pass
         time.sleep(60)
