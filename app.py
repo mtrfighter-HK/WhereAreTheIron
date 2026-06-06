@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify
 import sqlite3
 import requests
 from datetime import datetime
@@ -28,7 +28,6 @@ conn.commit()
 def background_collector():
     while True:
         try:
-            # 先用少量站點測試，穩定後再加多
             stations = [
                 ("TWL", "TSW"), ("TWL", "CEN"), ("TWL", "ADM"),
                 ("ISL", "CEN"), ("ISL", "ADM")
@@ -53,11 +52,29 @@ def background_collector():
             conn.commit()
         except:
             pass
-        time.sleep(60)   # 每60秒收集一次
+        time.sleep(60)
 
 # 啟動背景收集器
-collector_thread = threading.Thread(target=background_collector, daemon=True)
-collector_thread.start()
+background_thread = threading.Thread(target=background_collector, daemon=True)
+background_thread.start()
+
+# ====================== 新增 API ======================
+@app.route('/api/ttnt/<line>/<station>')
+def get_ttnt(line, station):
+    c.execute('''SELECT direction, dest, ttnt, is_delay 
+                 FROM mtr_ttnt 
+                 WHERE line=? AND station=? 
+                 ORDER BY timestamp DESC LIMIT 8''', (line, station))
+    rows = c.fetchall()
+    
+    up = [row for row in rows if row[0] == 'UP']
+    down = [row for row in rows if row[0] == 'DOWN']
+    
+    return jsonify({
+        "station": station,
+        "up": up[:3],
+        "down": down[:3]
+    })
 
 # ====================== 路由 ======================
 @app.route('/')
