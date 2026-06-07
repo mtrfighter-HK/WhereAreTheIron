@@ -36,13 +36,16 @@
                     style: { color: "#ed1d24", weight: 5, opacity: 0.7 }
                 }).addTo(map);
 
-                // 儲存所有坐標點
+                // 儲存所有坐標
                 data.features.forEach(f => {
                     if (f.geometry.type === "LineString") {
                         twlLineCoords = twlLineCoords.concat(f.geometry.coordinates);
                     }
                 });
-                console.log("軌道坐標載入完成，共", twlLineCoords.length, "點");
+                console.log("軌道載入完成，共 " + twlLineCoords.length + " 個點");
+                
+                // 軌道載入完成後開始移動列車
+                startTrainMovement();
             });
 
         // 車站點
@@ -62,37 +65,36 @@
                 }).addTo(map);
             });
 
-        // ==================== 列車沿軌道移動 ====================
-        function moveTrains() {
-            trainMarkers.forEach(m => map.removeLayer(m));
-            trainMarkers = [];
+        // 列車移動函數
+        function startTrainMovement() {
+            function moveTrains() {
+                trainMarkers.forEach(m => map.removeLayer(m));
+                trainMarkers = [];
 
-            if (twlLineCoords.length < 50) return;
+                if (twlLineCoords.length < 50) return;
 
-            const total = twlLineCoords.length;
-            const positions = [0.1, 0.4, 0.65, 0.85]; // 4個列車
+                const total = twlLineCoords.length;
+                const positions = [0.12, 0.38, 0.62, 0.88];
 
-            positions.forEach(progress => {
-                const idx = Math.floor(progress * (total - 1));
-                const coord = twlLineCoords[idx];
-                if (coord) {
-                    var marker = L.circleMarker([coord[1], coord[0]], {
-                        radius: 7,
-                        color: "#ffffff",
-                        fillColor: "#ef4444",
-                        fillOpacity: 1,
-                        weight: 3
-                    }).addTo(map);
-                    trainMarkers.push(marker);
-                }
-            });
+                positions.forEach(p => {
+                    const idx = Math.floor(p * (total - 1));
+                    const coord = twlLineCoords[idx];
+                    if (coord) {
+                        var marker = L.circleMarker([coord[1], coord[0]], {
+                            radius: 7,
+                            color: "#ffffff",
+                            fillColor: "#ef4444",
+                            fillOpacity: 1,
+                            weight: 3.5
+                        }).addTo(map);
+                        trainMarkers.push(marker);
+                    }
+                });
+            }
+
+            setInterval(moveTrains, 4000);
+            moveTrains(); // 首次執行
         }
-
-        // 每 4 秒移動一次
-        setInterval(moveTrains, 4000);
-        
-        // 等待軌道載入後開始移動
-        setTimeout(moveTrains, 3000);
     </script>
 </body>
 </html>
