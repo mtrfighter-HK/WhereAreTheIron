@@ -8,18 +8,8 @@
     <style>
         body { margin:0; padding:0; }
         #map { height: 100vh; width: 100%; }
-        .title { 
-            position: absolute; top: 15px; left: 15px; z-index: 1000; 
-            background: rgba(255,255,255,0.95); padding: 12px 18px; 
-            border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2);
-            font-size: 19px; font-weight: bold;
-        }
-        .back-btn {
-            position: absolute; top: 15px; right: 15px; z-index: 1000;
-            background: white; padding: 10px 16px; border-radius: 8px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 17px;
-            text-decoration: none; color: black;
-        }
+        .title { position: absolute; top: 15px; left: 15px; z-index: 1000; background: rgba(255,255,255,0.95); padding: 12px 18px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 19px; font-weight: bold; }
+        .back-btn { position: absolute; top: 15px; right: 15px; z-index: 1000; background: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 17px; text-decoration: none; color: black; }
         .leaflet-popup-content { font-size: 15.5px !important; line-height: 1.6; min-width: 220px; }
     </style>
 </head>
@@ -38,7 +28,7 @@
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        // 軌道
+        // 軌道 + 儲存坐標
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(r => r.json())
             .then(data => {
@@ -46,12 +36,13 @@
                     style: { color: "#ed1d24", weight: 5, opacity: 0.7 }
                 }).addTo(map);
 
-                // 儲存坐標
+                // 儲存所有坐標點
                 data.features.forEach(f => {
                     if (f.geometry.type === "LineString") {
                         twlLineCoords = twlLineCoords.concat(f.geometry.coordinates);
                     }
                 });
+                console.log("軌道坐標載入完成，共", twlLineCoords.length, "點");
             });
 
         // 車站點
@@ -66,24 +57,23 @@
                     onEachFeature: function(feature, layer) {
                         var zhName = feature.properties["StationName:zh"] || "未知站";
                         var code = feature.properties.StationCode || "";
-                        var popupContent = "<b>" + zhName + "</b> (" + code + ")<br>上行：載入中...<br>下行：載入中...";
-                        layer.bindPopup(popupContent);
+                        layer.bindPopup(`<b>\( {zhName} ( \){code})</b><br>上行：載入中...<br>下行：載入中...`);
                     }
                 }).addTo(map);
             });
 
-        // 列車移動
+        // ==================== 列車沿軌道移動 ====================
         function moveTrains() {
             trainMarkers.forEach(m => map.removeLayer(m));
             trainMarkers = [];
 
-            if (twlLineCoords.length < 10) return;
+            if (twlLineCoords.length < 50) return;
 
             const total = twlLineCoords.length;
-            const positions = [0.15, 0.45, 0.75]; // 3個列車位置
+            const positions = [0.1, 0.4, 0.65, 0.85]; // 4個列車
 
-            positions.forEach(p => {
-                const idx = Math.floor(p * (total - 1));
+            positions.forEach(progress => {
+                const idx = Math.floor(progress * (total - 1));
                 const coord = twlLineCoords[idx];
                 if (coord) {
                     var marker = L.circleMarker([coord[1], coord[0]], {
@@ -98,8 +88,11 @@
             });
         }
 
-        setInterval(moveTrains, 5000);
-        moveTrains();
+        // 每 4 秒移動一次
+        setInterval(moveTrains, 4000);
+        
+        // 等待軌道載入後開始移動
+        setTimeout(moveTrains, 3000);
     </script>
 </body>
 </html>
