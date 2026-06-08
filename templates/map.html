@@ -28,7 +28,7 @@
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        // 1. 載入軌道 + 儲存所有坐標點
+        // 載入軌道
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(r => r.json())
             .then(data => {
@@ -36,17 +36,20 @@
                     style: { color: "#ed1d24", weight: 5, opacity: 0.7 }
                 }).addTo(map);
 
-                // 儲存所有坐標
-                data.features.forEach(feature => {
-                    if (feature.geometry.type === "LineString") {
-                        twlLineCoords = twlLineCoords.concat(feature.geometry.coordinates);
+                // 儲存坐標
+                data.features.forEach(f => {
+                    if (f.geometry.type === "LineString") {
+                        twlLineCoords = twlLineCoords.concat(f.geometry.coordinates);
                     }
                 });
+
                 console.log("軌道載入完成，共 " + twlLineCoords.length + " 點");
-                startTrainMovement();
+
+                // 等待1秒後開始移動
+                setTimeout(startTrainMovement, 1000);
             });
 
-        // 2. 載入車站點
+        // 車站點
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(r => r.json())
             .then(data => {
@@ -63,7 +66,6 @@
                 }).addTo(map);
             });
 
-        // 3. 列車沿軌道移動
         function startTrainMovement() {
             function moveTrains() {
                 trainMarkers.forEach(m => map.removeLayer(m));
@@ -72,7 +74,7 @@
                 if (twlLineCoords.length < 100) return;
 
                 const total = twlLineCoords.length;
-                const positions = [0.08, 0.32, 0.55, 0.78];
+                const positions = [0.1, 0.35, 0.6, 0.85];
 
                 positions.forEach(p => {
                     const idx = Math.floor(p * (total - 1));
@@ -89,7 +91,8 @@
                     }
                 });
             }
-            setInterval(moveTrains, 4000);
+
+            setInterval(moveTrains, 3000);  // 每3秒移動一次
             moveTrains();
         }
     </script>
