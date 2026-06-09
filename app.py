@@ -135,3 +135,10 @@ def home(request: Request):
 @app.get("/map", response_class=HTMLResponse)
 def map_page(request: Request):
     return templates.TemplateResponse("map.html", {"request": request})
+
+# 在 app.py 最後面加入這幾行
+if __name__ == "__main__":
+    # 強制使用 Railway 分配的 PORT，如果沒有則預設 8080
+    port = int(os.environ.get("PORT", 8080)) 
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
