@@ -24,6 +24,9 @@ app.add_middleware(
 )
 
 # ====================== 資料庫設定 (防鎖死安全機制) ======================
+if not os.path.exists('數據儲存檔'):
+    os.makedirs('數據儲存檔')
+
 def get_db_connection():
     # timeout=10 確保多線程同時讀寫時會排隊等待，避免 database is locked 錯誤
     # 確保路徑指向你嘅資料夾
