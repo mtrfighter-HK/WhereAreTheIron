@@ -135,8 +135,3 @@ def home(request: Request):
 @app.get("/map", response_class=HTMLResponse)
 def map_page(request: Request):
     return templates.TemplateResponse("map.html", {"request": request})
-
-# ====================== 啟動進入點 ======================
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    uvicorn.run("app:app", host="0.0.0.0", port=port)
