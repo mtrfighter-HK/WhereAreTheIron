@@ -136,8 +136,8 @@ def home(request: Request):
 def map_page(request: Request):
     return templates.TemplateResponse("map.html", {"request": request})
 
-# 刪除之前所有啟動相關的代碼，只留這幾行
 if __name__ == "__main__":
-    # os.environ.get("PORT") 會自動讀取 Railway 介面上設定的那個 Port (例如 5000)
-    port = int(os.environ.get("PORT", 5000))
+    # 使用 Railway 強制指定的 PORT 環境變數，如果抓不到才 fallback 去 8080
+    port = int(os.environ.get("PORT", 8080))
+    # host 必須是 0.0.0.0，這點你做對了
     uvicorn.run("app:app", host="0.0.0.0", port=port)
