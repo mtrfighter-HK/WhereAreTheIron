@@ -137,7 +137,7 @@ def map_page(request: Request):
     return templates.TemplateResponse("map.html", {"request": request})
 
 if __name__ == "__main__":
-    # 使用 Railway 強制指定的 PORT 環境變數，如果抓不到才 fallback 去 8080
+    # 這裡會優先使用 Railway 自動分配的 PORT，若無則預設為 8080
     port = int(os.environ.get("PORT", 8080))
-    # host 必須是 0.0.0.0，這點你做對了
     uvicorn.run("app:app", host="0.0.0.0", port=port)
+
