@@ -26,7 +26,9 @@ app.add_middleware(
 # ====================== 資料庫設定 (防鎖死安全機制) ======================
 def get_db_connection():
     # timeout=10 確保多線程同時讀寫時會排隊等待，避免 database is locked 錯誤
-    conn = sqlite3.connect('mtr_data.db', timeout=10, check_same_thread=False)
+    # 確保路徑指向你嘅資料夾
+conn = sqlite3.connect('數據儲存檔/mtr_data.db', timeout=10, check_same_thread=False)
+
     conn.row_factory = sqlite3.Row 
     return conn
 
