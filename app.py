@@ -8,7 +8,7 @@ from flask import Flask, render_template, jsonify
 
 app = Flask(__name__, template_folder='templates')
 
-DB_PATH = '/tmp/mtr_data.db' 
+DB_PATH = '/tmp/mtr_data.db'
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
