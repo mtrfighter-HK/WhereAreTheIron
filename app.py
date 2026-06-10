@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 import sqlite3
 import requests
@@ -37,7 +37,7 @@ conn.close()
 def background_collector():
     while True:
         try:
-            stations = [("TWL", "TSW"), ("TWL", "CEN"), ("ISL", "CEN")]
+            stations = [("TWL", "TSW"), ("TWL", "CEN"), ("TWL", "ADM"), ("ISL", "CEN")]
             conn = get_db()
             c = conn.cursor()
             for line, sta in stations:
@@ -76,12 +76,21 @@ async def home():
     
     html = f"""
     <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>MTR 收集器</title></head>
-    <body style="font-family:Arial;text-align:center;padding:50px;">
+    <html lang="zh-HK">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>MTR 收集器</title>
+        <style>
+            body {{ font-family: Arial; text-align: center; padding: 40px; background: #f8f9fa; }}
+            h1 {{ color: #1e40af; }}
+            .btn {{ display: inline-block; margin: 20px; padding: 15px 30px; font-size: 20px; background: #1e40af; color: white; text-decoration: none; border-radius: 10px; }}
+        </style>
+    </head>
+    <body>
         <h1>🚇 MTR 收集器運行中</h1>
         <p>目前已收集 <strong>{total}</strong> 筆記錄</p>
-        <a href="/map" style="font-size:20px;color:blue;">🗺️ 前往實時地圖</a>
+        <a href="/map" class="btn">🗺️ 前往實時地圖</a>
     </body>
     </html>
     """
@@ -89,12 +98,35 @@ async def home():
 
 @app.get("/map", response_class=HTMLResponse)
 async def map_page():
-    return HTMLResponse("<h1>地圖頁面建設中...</h1><p>稍後會加入 Leaflet 地圖</p>")
+    html = """
+    <!DOCTYPE html>
+    <html lang="zh-HK">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>港鐵實時地圖</title>
+        <style>
+            body { margin:0; padding:0; font-family: Arial; }
+            .header { background: #1e40af; color: white; padding: 15px; text-align: center; font-size: 20px; }
+            .back { color: white; text-decoration: none; position: absolute; top: 15px; left: 15px; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <a href="/" class="back">← 返回主頁</a>
+            🗺️ 港鐵實時地圖 (恢復中)
+        </div>
+        <div style="padding:30px; text-align:center;">
+            <h2>地圖功能恢復中...</h2>
+            <p>目前顯示簡單版本，之後會加入完整 Leaflet 地圖</p>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)
 
 # ====================== 啟動 ======================
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-我哋可以由此做基礎繼續開發。
