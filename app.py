@@ -24,7 +24,8 @@ app.add_middleware(
 
 # 資料庫連線函數 (不使用子目錄，直接存入根目錄避免路徑權限問題)
 def get_db_connection():
-    conn = sqlite3.connect('mtr_data.db', timeout=10, check_same_thread=False)
+    # 將這行改為：
+conn = sqlite3.connect('/tmp/mtr_data.db', timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
