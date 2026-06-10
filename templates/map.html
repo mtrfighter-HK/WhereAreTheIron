@@ -6,130 +6,95 @@
     <title>港鐵實時地圖</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin:0; padding:0; background: #f4f3f0; font-family: "Helvetica Neue", Arial, sans-serif; }
+        body { margin:0; padding:0; }
         #map { height: 100vh; width: 100%; }
-
-        .title { position: absolute; top: 15px; left: 15px; z-index: 1000; background: rgba(255,255,255,0.95); padding: 12px 18px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 19px; font-weight: bold; border-left: 5px solid #e21b22; }
-        .back-btn { position: absolute; top: 15px; right: 15px; z-index: 1000; background: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 16px; text-decoration: none; color: #333; font-weight: bold; }
-        .back-btn:hover { background: #eee; }
-
-        /* 專業的列車標籤樣式 */
-        .custom-train-tooltip {
-            background-color: #2c3e50 !important; color: #ffffff !important;
-            border: 1px solid #1a252f !important; border-radius: 4px !important;
-            padding: 6px 10px !important; font-size: 12px !important;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important; opacity: 0.95 !important;
-        }
-        .custom-train-tooltip::before { border-top-color: #2c3e50 !important; }
+        .title { position: absolute; top: 15px; left: 15px; z-index: 1000; background: rgba(255,255,255,0.95); padding: 12px 18px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 19px; font-weight: bold; }
+        .back-btn { position: absolute; top: 15px; right: 15px; z-index: 1000; background: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 17px; text-decoration: none; color: black; }
+        .leaflet-popup-content { font-size: 15.5px !important; line-height: 1.6; min-width: 220px; }
     </style>
 </head>
 <body>
-    <div class="title">🗺️ 港鐵荃灣綫 - 實時去重定位地圖</div>
-    <a href="/" class="back-btn">← 返回數據中心</a>
+    <div class="title">🗺️ 港鐵實時地圖</div>
+    <a href="/" class="back-btn">← 返回主頁</a>
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        var map = L.map('map', { zoomControl: false }).setView([22.3193, 114.1694], 13);
-        L.control.zoom({ position: 'bottomright' }).addTo(map);
+        var map = L.map('map').setView([22.3193, 114.1694], 12);
+        var trainMarkers = [];
+        var twlLineCoords = [];
 
-        // 使用較為乾淨的底圖，凸顯軌道與列車
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; OpenStreetMap & CartoDB'
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        var stationCoordinates = {}; // 儲存車站代碼與經緯度的對照表
-        var currentTrainMarkers = {}; // 儲存目前的列車標記
-
-        // 1. 載入軌道 (維持使用 GitHub Raw)
+        // 載入軌道
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(r => r.json())
             .then(data => {
                 L.geoJSON(data, {
-                    style: { color: "#e21b22", weight: 4, opacity: 0.6 } // 荃灣綫紅色
+                    style: { color: "#ed1d24", weight: 5, opacity: 0.7 }
                 }).addTo(map);
+
+                // 儲存坐標
+                data.features.forEach(f => {
+                    if (f.geometry.type === "LineString") {
+                        twlLineCoords = twlLineCoords.concat(f.geometry.coordinates);
+                    }
+                });
+
+                console.log("軌道載入完成，共 " + twlLineCoords.length + " 點");
+
+                // 等待1秒後開始移動
+                setTimeout(startTrainMovement, 1000);
             });
 
-        // 2. 載入車站並建立座標對照表 (維持使用 GitHub Raw)
+        // 車站點
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(r => r.json())
             .then(data => {
                 L.geoJSON(data, {
-                    filter: f => f.properties.StationCode !== "NIL" && f.properties.RouteCode === "TWL",
+                    filter: f => f.properties.StationCode !== "NIL",
                     pointToLayer: (f, latlng) => L.circleMarker(latlng, {
-                        radius: 5, color: "#333", fillColor: "#fff", fillOpacity: 1, weight: 2
+                        radius: 5, color: "#333", fillColor: "#fff", fillOpacity: 0.9, weight: 3
                     }),
                     onEachFeature: function(feature, layer) {
-                        var code = feature.properties.StationCode;
-                        var zhName = feature.properties["StationName:zh"];
-                        layer.bindTooltip(`<b>${zhName} (${code})</b>`);
-
-                        // 建立字典，供稍後計算列車位置使用 (注意：Leaflet 使用 [lat, lng])
-                        var coords = feature.geometry.coordinates;
-                        stationCoordinates[code] = [coords[1], coords[0]];
+                        var zhName = feature.properties["StationName:zh"] || "未知站";
+                        var code = feature.properties.StationCode || "";
+                        layer.bindPopup(`<b>\( {zhName} ( \){code})</b><br>上行：載入中...<br>下行：載入中...`);
                     }
                 }).addTo(map);
-
-                // 車站載入完成後，立刻啟動第一次實時列車更新
-                updateLiveTrains();
             });
 
-        // 💡 核心演算法：線性插值計算兩站之間的即時位置
-        function interpolatePosition(fromCode, toCode, progress) {
-            let p1 = stationCoordinates[fromCode];
-            let p2 = stationCoordinates[toCode];
-            if (!p1 || !p2) return null;
+        function startTrainMovement() {
+            function moveTrains() {
+                trainMarkers.forEach(m => map.removeLayer(m));
+                trainMarkers = [];
 
-            let lat = p1[0] + (p2[0] - p1[0]) * progress;
-            let lng = p1[1] + (p2[1] - p1[1]) * progress;
-            return [lat, lng];
-        }
+                if (twlLineCoords.length < 100) return;
 
-        // 3. 實時抓取 Railway 後端 API 的真實列車數據
-        async function updateLiveTrains() {
-            try {
-                // 因為網頁同 API 喺同一個 Railway 伺服器，所以可以用相對路徑 '/api/live'
-                let response = await fetch('/api/live');
-                if (!response.ok) throw new Error("API 連線失敗");
-                let trainData = await response.json();
+                const total = twlLineCoords.length;
+                const positions = [0.1, 0.35, 0.6, 0.85];
 
-                // 清除舊的火車標記
-                Object.keys(currentTrainMarkers).forEach(id => map.removeLayer(currentTrainMarkers[id]));
-                currentTrainMarkers = {}; 
-
-                // 遍歷真實數據，畫出每一班車
-                Object.keys(trainData).forEach(trainId => {
-                    let train = trainData[trainId];
-                    let trainLatLng = interpolatePosition(train.from, train.to, train.progress);
-
-                    if (trainLatLng) {
-                        let trainMarker = L.marker(trainLatLng, {
-                            icon: L.divIcon({
-                                className: 'train-marker-icon',
-                                html: `<div style="background: ${train.direction === 'UP' ? '#2ecc71' : '#e74c3c'}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.4);"></div>`,
-                                iconSize: [14, 14],
-                                iconAnchor: [7, 7]
-                            })
+                positions.forEach(p => {
+                    const idx = Math.floor(p * (total - 1));
+                    const coord = twlLineCoords[idx];
+                    if (coord) {
+                        var marker = L.circleMarker([coord[1], coord[0]], {
+                            radius: 7,
+                            color: "#ffffff",
+                            fillColor: "#ef4444",
+                            fillOpacity: 1,
+                            weight: 3.5
                         }).addTo(map);
-
-                        // 永久顯示嘅動態標籤
-                        trainMarker.bindTooltip(
-                            `<div style="line-height: 1.4;">
-                                <strong style="color:#f1c40f;">🆔 ${trainId}</strong><br>
-                                🎬 往${train.dest} | 進度: ${Math.round(train.progress * 100)}%
-                             </div>`, 
-                            { permanent: true, direction: 'top', offset: [0, -8], className: 'custom-train-tooltip' }
-                        );
-                        currentTrainMarkers[trainId] = trainMarker;
+                        trainMarkers.push(marker);
                     }
                 });
-            } catch (error) {
-                console.error("更新實時列車發生錯誤:", error);
             }
-        }
 
-        // 每 20 秒自動去後端撈一次新數據更新地圖
-        setInterval(updateLiveTrains, 20000);
+            setInterval(moveTrains, 3000);  // 每3秒移動一次
+            moveTrains();
+        }
     </script>
 </body>
 </html>
