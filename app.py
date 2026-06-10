@@ -1,120 +1,103 @@
 import os
 import sqlite3
 import requests
-import time
 import threading
-import uvicorn
-from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.middleware.cors import CORSMiddleware
+import time
+from datetime import datetime
+from flask import Flask, render_template, jsonify
 
-# 初始化
-app = FastAPI(title="MTR Big Data Engine")
-templates = Jinja2Templates(directory="templates")
+app = Flask(__name__, template_folder='templates')
 
-# CORS 設定
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ====================== 資料庫設定 ======================
+# Railway 的臨時寫入路徑
+DB_PATH = '/tmp/mtr_data.db' 
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+c = conn.cursor()
 
-# 資料庫連線函數 (不使用子目錄，直接存入根目錄避免路徑權限問題)
-def get_db_connection():
-    # 使用絕對路徑確保在 Railway 環境中可寫入
-    db_path = '/tmp/mtr_data.db'
-    conn = sqlite3.connect(db_path, timeout=10, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+c.execute('''CREATE TABLE IF NOT EXISTS mtr_ttnt (
+    id INTEGER PRIMARY KEY,
+    timestamp TEXT,
+    line TEXT,
+    station TEXT,
+    direction TEXT,
+    dest TEXT,
+    ttnt INTEGER,
+    is_delay TEXT,
+    collected_at TEXT
+)''')
+conn.commit()
 
-# 初始化資料庫
-def init_db():
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS mtr_live_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp TEXT,
-        train_id TEXT,
-        line TEXT,
-        direction TEXT,
-        from_station TEXT,
-        to_station TEXT,
-        progress REAL,
-        dest TEXT
-    )''')
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# 全域變數
-current_live_data = {}
-TWL_STATIONS = ["TSW", "TWH", "KWH", "KWF", "LAK", "MEF", "LCK", "CSW", "SSP", "PRE", "MOK", "YMT", "JOR", "TST", "ADM", "CEN"]
-
+# ====================== 背景自動收集器 ======================
 def background_collector():
-    global current_live_data
-    hk_tz = timezone(timedelta(hours=8))
     while True:
         try:
-            active_trains = {}
-            conn = get_db_connection()
-            c = conn.cursor()
+            stations = [("TWL", "TSW"), ("TWL", "KWH"), ("TWL", "TWH"), ("TWL", "LAK"),
+                        ("TWL", "MEF"), ("TWL", "LCK"), ("TWL", "CSW"), ("TWL", "SSP"),
+                        ("TWL", "PRE"), ("TWL", "MOK"), ("TWL", "YMT"), ("TWL", "JOR"),
+                        ("TWL", "TST"), ("TWL", "ADM"), ("TWL", "CEN"),
+                        ("ISL", "CEN"), ("ISL", "ADM"), ("ISL", "WAC"), ("ISL", "CAB")]
+
+            # 每次循環重新連接，避免線程鎖死
+            local_conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            local_c = local_conn.cursor()
             
-            # 簡化掃描邏輯
-            for direction in ['UP', 'DOWN']:
-                for i in range(len(TWL_STATIONS) - 1):
-                    start_sta = TWL_STATIONS[i]
-                    end_sta = TWL_STATIONS[i+1]
-                    target_sta = end_sta if direction == 'UP' else start_sta
-                    from_sta = start_sta if direction == 'UP' else end_sta
-                    
-                    train_id = f"TWL-{direction}-{from_sta}_{target_sta}"
-                    url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=TWL&sta={target_sta}"
-                    
-                    res = requests.get(url, timeout=5).json()
-                    if res.get('status') == 1:
-                        data = res.get('data', {}).get(f'TWL-{target_sta}', {}).get(direction, [])
-                        for train in data:
-                            ttnt = int(train.get('ttnt', 99))
-                            if 1 <= ttnt <= 3:
-                                progress = 0.85 if ttnt == 1 else (0.50 if ttnt == 2 else 0.15)
-                                active_trains[train_id] = {
-                                    "train_id": train_id, "direction": direction,
-                                    "from": from_sta, "to": target_sta, "progress": progress, "dest": train.get('dest')
-                                }
-                                c.execute("INSERT INTO mtr_live_history (timestamp, train_id, line, direction, from_station, to_station, progress, dest) VALUES (?,?,?,?,?,?,?,?)",
-                                          (datetime.now(hk_tz).isoformat(), train_id, "TWL", direction, from_sta, target_sta, progress, train.get('dest')))
-            conn.commit()
-            conn.close()
-            current_live_data = active_trains
-        except Exception as e:
-            print(f"Collector Error: {e}")
+            for line, sta in stations:
+                try:
+                    url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={line}&sta={sta}"
+                    r = requests.get(url, timeout=10)
+                    if r.status_code == 200:
+                        data = r.json().get('data', {}).get(f'{line}-{sta}', {})
+                        now = datetime.now().isoformat()
+                        for direction in ['UP', 'DOWN']:
+                            if direction in data:
+                                for train in data[direction]:
+                                    local_c.execute('''INSERT INTO mtr_ttnt 
+                                        (timestamp, line, station, direction, dest, ttnt, is_delay, collected_at)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                                        (now, line, sta, direction, train.get('dest'),
+                                         int(train.get('ttnt', 99)), train.get('isdelay', 'N'), now))
+                except:
+                    pass
+            local_conn.commit()
+            local_conn.close()
+        except:
+            pass
         time.sleep(60)
 
-threading.Thread(target=background_collector, daemon=True).start()
+background_thread = threading.Thread(target=background_collector, daemon=True)
+background_thread.start()
 
-# 路由
-@app.get("/api/live")
-def get_live():
-    return current_live_data
+# ====================== 路由 ======================
+@app.route('/api/ttnt/<line>/<station>')
+def get_ttnt(line, station):
+    local_conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    local_c = local_conn.cursor()
+    local_c.execute('''SELECT direction, dest, ttnt, is_delay 
+                 FROM mtr_ttnt 
+                 WHERE line=? AND station=? 
+                 ORDER BY timestamp DESC LIMIT 8''', (line, station))
+    rows = local_c.fetchall()
+    local_conn.close()
 
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM mtr_live_history")
-    total = c.fetchone()[0]
-    conn.close()
-    return templates.TemplateResponse("index.html", {"request": request, "total": total})
+    up = [row for row in rows if row[0] == 'UP']
+    down = [row for row in rows if row[0] == 'DOWN']
 
-@app.get("/map", response_class=HTMLResponse)
-def map_page(request: Request):
-    return templates.TemplateResponse("map.html", {"request": request})
+    return jsonify({"station": station, "up": up[:3], "down": down[:3]})
 
-# 啟動設定
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    uvicorn.run("app:app", host="0.0.0.0", port=port)
+@app.route('/')
+def home():
+    local_conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    local_c = local_conn.cursor()
+    local_c.execute("SELECT COUNT(*) FROM mtr_ttnt")
+    total = local_c.fetchone()[0]
+    local_conn.close()
+    return render_template('index.html', total=total)
+
+@app.route('/map')
+def map_page():
+    return render_template('map.html')
+
+if __name__ == '__main__':
+    # 這裡改用 Railway 環境變數中的 Port，若無則預設 5000
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
