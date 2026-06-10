@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
 import requests
 import threading
-import time                     # ← 這一行是關鍵，之前漏了
+import time
 from datetime import datetime
 
 app = FastAPI(title="MTR 實時地圖")
@@ -77,7 +77,6 @@ def background_collector():
             pass
         time.sleep(60)
 
-# 啟動收集器
 threading.Thread(target=background_collector, daemon=True).start()
 
 # ====================== 路由 ======================
@@ -93,19 +92,6 @@ async def home(request: Request):
 @app.get("/map", response_class=HTMLResponse)
 async def map_page(request: Request):
     return templates.TemplateResponse("map.html", {"request": request})
-
-@app.get("/api/ttnt/{line}/{station}")
-async def get_ttnt(line: str, station: str):
-    conn = get_db()
-    c = conn.cursor()
-    c.execute('''SELECT direction, dest, ttnt, is_delay 
-                 FROM mtr_ttnt 
-                 WHERE line=? AND station=? 
-                 ORDER BY timestamp DESC LIMIT 6''', (line, station))
-    rows = c.fetchall()
-    conn.close()
-    return {"up": [dict(row) for row in rows if row["direction"] == "UP"],
-            "down": [dict(row) for row in rows if row["direction"] == "DOWN"]}
 
 # ====================== 啟動 ======================
 if __name__ == "__main__":
