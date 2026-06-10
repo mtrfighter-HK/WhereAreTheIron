@@ -128,7 +128,8 @@ def home(request: Request):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM mtr_live_history")
-    total = c.fetchone()[0]
+row = c.fetchone()
+total = row[0] if row else 0 # 確保拿到的是純數字
     conn.close()
     return templates.TemplateResponse("index.html", {"request": request, "total": total})
 
