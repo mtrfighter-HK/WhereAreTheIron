@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
 import requests
 import threading
+import time                     # ← 這一行是關鍵，之前漏了
 from datetime import datetime
 
 app = FastAPI(title="MTR 實時地圖")
@@ -76,6 +77,7 @@ def background_collector():
             pass
         time.sleep(60)
 
+# 啟動收集器
 threading.Thread(target=background_collector, daemon=True).start()
 
 # ====================== 路由 ======================
