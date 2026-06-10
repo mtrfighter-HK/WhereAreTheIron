@@ -5,16 +5,13 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
 import requests
-import time
 import threading
 from datetime import datetime
 
-app = FastAPI(title="MTR 實時地圖系統")
+app = FastAPI(title="MTR 實時地圖")
 
-# 確保 templates 資料夾存在
 templates = Jinja2Templates(directory="templates")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,7 +28,6 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-# 初始化資料庫
 conn = get_db()
 conn.execute('''CREATE TABLE IF NOT EXISTS mtr_ttnt (
     id INTEGER PRIMARY KEY,
@@ -55,6 +51,8 @@ def background_collector():
                 ("TWL", "TSW"), ("TWL", "TWH"), ("TWL", "KWH"), ("TWL", "CEN"),
                 ("TWL", "ADM"), ("ISL", "CEN"), ("ISL", "ADM")
             ]
+            conn = get_db()
+            c = conn.cursor()
             for line, sta in stations:
                 try:
                     url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={line}&sta={sta}"
@@ -62,8 +60,6 @@ def background_collector():
                     if r.status_code == 200:
                         data = r.json().get('data', {}).get(f'{line}-{sta}', {})
                         now = datetime.now().isoformat()
-                        conn = get_db()
-                        c = conn.cursor()
                         for direction in ['UP', 'DOWN']:
                             if direction in data:
                                 for train in data[direction]:
@@ -72,15 +68,14 @@ def background_collector():
                                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
                                         (now, line, sta, direction, train.get('dest'),
                                          int(train.get('ttnt', 99)), train.get('isdelay', 'N'), now))
-                        conn.commit()
-                        conn.close()
                 except:
                     pass
+            conn.commit()
+            conn.close()
         except:
             pass
         time.sleep(60)
 
-# 啟動收集器
 threading.Thread(target=background_collector, daemon=True).start()
 
 # ====================== 路由 ======================
@@ -107,8 +102,8 @@ async def get_ttnt(line: str, station: str):
                  ORDER BY timestamp DESC LIMIT 6''', (line, station))
     rows = c.fetchall()
     conn.close()
-    return {"up": [dict(r) for r in rows if r["direction"] == "UP"],
-            "down": [dict(r) for r in rows if r["direction"] == "DOWN"]}
+    return {"up": [dict(row) for row in rows if row["direction"] == "UP"],
+            "down": [dict(row) for row in rows if row["direction"] == "DOWN"]}
 
 # ====================== 啟動 ======================
 if __name__ == "__main__":
