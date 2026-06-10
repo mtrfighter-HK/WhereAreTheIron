@@ -102,13 +102,12 @@ def get_live():
     return current_live_data
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
+async def home(request: Request):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM mtr_live_history")
     total = c.fetchone()[0]
     conn.close()
-    # 確保傳遞參數格式乾淨
     return templates.TemplateResponse("index.html", {"request": request, "total": total})
 
 @app.get("/map", response_class=HTMLResponse)
