@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 import sqlite3
 import requests
