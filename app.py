@@ -1,8 +1,6 @@
 import os
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
 import requests
 import threading
@@ -10,16 +8,6 @@ import time
 from datetime import datetime
 
 app = FastAPI(title="MTR 實時地圖")
-
-templates = Jinja2Templates(directory="templates")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # ====================== 資料庫 ======================
 DB_PATH = "mtr_data.db"
@@ -29,6 +17,7 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+# 初始化資料庫
 conn = get_db()
 conn.execute('''CREATE TABLE IF NOT EXISTS mtr_ttnt (
     id INTEGER PRIMARY KEY,
@@ -48,10 +37,7 @@ conn.close()
 def background_collector():
     while True:
         try:
-            stations = [
-                ("TWL", "TSW"), ("TWL", "TWH"), ("TWL", "KWH"), ("TWL", "CEN"),
-                ("TWL", "ADM"), ("ISL", "CEN"), ("ISL", "ADM")
-            ]
+            stations = [("TWL", "TSW"), ("TWL", "CEN"), ("ISL", "CEN")]
             conn = get_db()
             c = conn.cursor()
             for line, sta in stations:
@@ -81,17 +67,29 @@ threading.Thread(target=background_collector, daemon=True).start()
 
 # ====================== 路由 ======================
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+async def home():
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM mtr_ttnt")
     total = c.fetchone()[0]
     conn.close()
-    return templates.TemplateResponse("index.html", {"request": request, "total": total})
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>MTR 收集器</title></head>
+    <body style="font-family:Arial;text-align:center;padding:50px;">
+        <h1>🚇 MTR 收集器運行中</h1>
+        <p>目前已收集 <strong>{total}</strong> 筆記錄</p>
+        <a href="/map" style="font-size:20px;color:blue;">🗺️ 前往實時地圖</a>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)
 
 @app.get("/map", response_class=HTMLResponse)
-async def map_page(request: Request):
-    return templates.TemplateResponse("map.html", {"request": request})
+async def map_page():
+    return HTMLResponse("<h1>地圖頁面建設中...</h1><p>稍後會加入 Leaflet 地圖</p>")
 
 # ====================== 啟動 ======================
 if __name__ == "__main__":
