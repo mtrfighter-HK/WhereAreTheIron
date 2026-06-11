@@ -1,13 +1,16 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 import sqlite3
 import requests
 import threading
 import time
 from datetime import datetime
 
-app = FastAPI(title="MTR 實時地圖")
+app = FastAPI(title="Where Are The Iron")
+
+templates = Jinja2Templates(directory="templates")
 
 # ====================== 資料庫 ======================
 DB_PATH = "mtr_data.db"
@@ -37,7 +40,8 @@ conn.close()
 def background_collector():
     while True:
         try:
-            stations = [("TWL", "TSW"), ("TWL", "CEN"), ("TWL", "ADM"), ("ISL", "CEN")]
+            stations = [("TWL", "TSW"), ("TWL", "TWH"), ("TWL", "KWH"), ("TWL", "CEN"), 
+                       ("TWL", "ADM"), ("ISL", "CEN"), ("ISL", "ADM")]
             conn = get_db()
             c = conn.cursor()
             for line, sta in stations:
@@ -66,64 +70,18 @@ def background_collector():
 threading.Thread(target=background_collector, daemon=True).start()
 
 # ====================== 路由 ======================
-@app.get("/", response_class=HTMLResponse)
-async def home():
+@app.get("/", response_class=HTMLResponse)   # 主頁 = 地圖
+async def map_page(request: Request):
+    return templates.TemplateResponse("map.html", {"request": request})
+
+@app.get("/data", response_class=HTMLResponse)   # 數據後台
+async def data_page(request: Request):
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM mtr_ttnt")
     total = c.fetchone()[0]
     conn.close()
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html lang="zh-HK">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>MTR 收集器</title>
-        <style>
-            body {{ font-family: Arial; text-align: center; padding: 40px; background: #f8f9fa; }}
-            h1 {{ color: #1e40af; }}
-            .btn {{ display: inline-block; margin: 20px; padding: 15px 30px; font-size: 20px; background: #1e40af; color: white; text-decoration: none; border-radius: 10px; }}
-        </style>
-    </head>
-    <body>
-        <h1>🚇 MTR 收集器運行中</h1>
-        <p>目前已收集 <strong>{total}</strong> 筆記錄</p>
-        <a href="/map" class="btn">🗺️ 前往實時地圖</a>
-    </body>
-    </html>
-    """
-    return HTMLResponse(html)
-
-@app.get("/map", response_class=HTMLResponse)
-async def map_page():
-    html = """
-    <!DOCTYPE html>
-    <html lang="zh-HK">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>港鐵實時地圖</title>
-        <style>
-            body { margin:0; padding:0; font-family: Arial; }
-            .header { background: #1e40af; color: white; padding: 15px; text-align: center; font-size: 20px; }
-            .back { color: white; text-decoration: none; position: absolute; top: 15px; left: 15px; }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <a href="/" class="back">← 返回主頁</a>
-            🗺️ 港鐵實時地圖 (恢復中)
-        </div>
-        <div style="padding:30px; text-align:center;">
-            <h2>地圖功能恢復中...</h2>
-            <p>目前顯示簡單版本，之後會加入完整 Leaflet 地圖</p>
-        </div>
-    </body>
-    </html>
-    """
-    return HTMLResponse(html)
+    return templates.TemplateResponse("index.html", {"request": request, "total": total})
 
 # ====================== 啟動 ======================
 if __name__ == "__main__":
