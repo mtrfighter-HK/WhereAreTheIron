@@ -4,23 +4,43 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>港鐵實時地圖</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f8f9fa; }
-        .header { background: #1e40af; color: white; padding: 15px; text-align: center; font-size: 20px; }
-        .back { position: absolute; top: 15px; left: 15px; color: white; font-size: 18px; text-decoration: none; }
-        #map-container { padding: 20px; text-align: center; }
+        body { margin:0; padding:0; }
+        #map { height: 100vh; width: 100%; }
+        .title { position: absolute; top: 15px; left: 15px; z-index: 1000; background: rgba(255,255,255,0.95); padding: 12px 18px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 19px; font-weight: bold; }
+        .data-btn { position: absolute; top: 15px; right: 15px; z-index: 1000; background: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.2); font-size: 16px; text-decoration: none; color: black; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <a href="/" class="back">← 返回</a>
-        🗺️ 港鐵實時地圖 (測試版)
-    </div>
-    
-    <div id="map-container">
-        <h2>荃灣綫 地圖載入中...</h2>
-        <p>目前地圖功能正在恢復中</p>
-        <p style="color: green;">✅ 如果你見到呢個頁面，代表網站已經可以正常運行了</p>
-    </div>
+    <div class="title">🗺️ 港鐵實時地圖</div>
+    <a href="/data" class="data-btn">📊 數據後台</a>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        var map = L.map('map').setView([22.3193, 114.1694], 12);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        // 軌道
+        fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
+            .then(r => r.json())
+            .then(data => {
+                L.geoJSON(data, { style: { color: "#ed1d24", weight: 5, opacity: 0.7 } }).addTo(map);
+            });
+
+        // 車站
+        fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
+            .then(r => r.json())
+            .then(data => {
+                L.geoJSON(data, {
+                    filter: f => f.properties.StationCode !== "NIL",
+                    pointToLayer: (f, latlng) => L.circleMarker(latlng, {
+                        radius: 5, color: "#333", fillColor: "#fff", fillOpacity: 0.9, weight: 3
+                    })
+                }).addTo(map);
+            });
+    </script>
 </body>
 </html>
