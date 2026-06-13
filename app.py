@@ -9,11 +9,14 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/")
 async def root(request: Request):
-    return templates.TemplateResponse("map.html", {"request": request})
+    try:
+        return templates.TemplateResponse("map.html", {"request": request})
+    except Exception as e:
+        return HTMLResponse(f"<h1>模板載入錯誤: {str(e)}</h1>")
 
 @app.get("/data")
 async def data_page(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "total": 0})
+    return HTMLResponse("<h1>數據後台 (開發中)</h1><a href='/'>返回地圖</a>")
 
 if __name__ == "__main__":
     import uvicorn
