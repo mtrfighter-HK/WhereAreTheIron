@@ -20,22 +20,17 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         var map = L.map('map').setView([22.3193, 114.1694], 12);
-        var trainMarkers = {};
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap'
-        }).addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // 載入軌道
+        // 軌道
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(r => r.json())
             .then(data => {
-                L.geoJSON(data, {
-                    style: { color: "#ed1d24", weight: 5, opacity: 0.7 }
-                }).addTo(map);
+                L.geoJSON(data, { style: { color: "#ed1d24", weight: 5, opacity: 0.7 } }).addTo(map);
             });
 
-        // 載入車站
+        // 車站
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(r => r.json())
             .then(data => {
@@ -43,41 +38,9 @@
                     filter: f => f.properties.StationCode !== "NIL",
                     pointToLayer: (f, latlng) => L.circleMarker(latlng, {
                         radius: 5, color: "#333", fillColor: "#fff", fillOpacity: 0.9, weight: 3
-                    }),
-                    onEachFeature: function(feature, layer) {
-                        var zhName = feature.properties["StationName:zh"] || "未知站";
-                        var code = feature.properties.StationCode || "";
-                        layer.bindPopup(`<b>\( {zhName} ( \){code})</b><br>上行：載入中...<br>下行：載入中...`);
-                    }
+                    })
                 }).addTo(map);
             });
-
-        // 簡單列車移動模擬（之後會改成真實數據）
-        function simulateTrains() {
-            // 清除舊標記
-            Object.values(trainMarkers).forEach(m => map.removeLayer(m));
-            trainMarkers = {};
-
-            const positions = [
-                [22.2815, 114.1600],   // 中環附近
-                [22.3000, 114.1720],   // 金鐘附近
-                [22.3300, 114.1600]    // 尖沙咀附近
-            ];
-
-            positions.forEach((pos, i) => {
-                var marker = L.circleMarker(pos, {
-                    radius: 8,
-                    color: "#fff",
-                    fillColor: "#ef4444",
-                    fillOpacity: 1,
-                    weight: 3
-                }).addTo(map);
-                trainMarkers[i] = marker;
-            });
-        }
-
-        setInterval(simulateTrains, 4000);
-        simulateTrains();
     </script>
 </body>
 </html>
