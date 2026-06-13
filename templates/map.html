@@ -13,24 +13,30 @@
     </style>
 </head>
 <body>
-    <div class="title">🗺️ 港鐵實時地圖</div>
+    <div class="title">🗺️ 港鐵實時地圖 - 荃灣綫</div>
     <a href="/data" class="data-btn">📊 數據後台</a>
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         var map = L.map('map').setView([22.3193, 114.1694], 12);
+        var trainMarkers = {};
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
 
-        // 軌道
+        // 載入軌道
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(r => r.json())
             .then(data => {
-                L.geoJSON(data, { style: { color: "#ed1d24", weight: 5, opacity: 0.7 } }).addTo(map);
-            });
+                L.geoJSON(data, {
+                    style: { color: "#ed1d24", weight: 5, opacity: 0.75 }
+                }).addTo(map);
+            })
+            .catch(err => console.error("軌道載入失敗", err));
 
-        // 車站
+        // 載入車站
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(r => r.json())
             .then(data => {
@@ -38,9 +44,39 @@
                     filter: f => f.properties.StationCode !== "NIL",
                     pointToLayer: (f, latlng) => L.circleMarker(latlng, {
                         radius: 5, color: "#333", fillColor: "#fff", fillOpacity: 0.9, weight: 3
-                    })
+                    }),
+                    onEachFeature: function(feature, layer) {
+                        var zhName = feature.properties["StationName:zh"] || "未知站";
+                        var code = feature.properties.StationCode || "";
+                        layer.bindPopup(`<b>\( {zhName} ( \){code})</b><br>上行：載入中...<br>下行：載入中...`);
+                    }
                 }).addTo(map);
+            })
+            .catch(err => console.error("車站載入失敗", err));
+
+        // 列車模擬移動
+        function simulateTrains() {
+            Object.values(trainMarkers).forEach(m => map.removeLayer(m));
+            trainMarkers = {};
+
+            const positions = [0.12, 0.38, 0.62, 0.85];
+
+            positions.forEach((p, i) => {
+                const lat = 22.28 + p * 0.09;
+                const lng = 114.155 + p * 0.035;
+                var marker = L.circleMarker([lat, lng], {
+                    radius: 8,
+                    color: "#ffffff",
+                    fillColor: "#ef4444",
+                    fillOpacity: 1,
+                    weight: 3.5
+                }).addTo(map);
+                trainMarkers[i] = marker;
             });
+        }
+
+        setInterval(simulateTrains, 4000);
+        simulateTrains();
     </script>
 </body>
 </html>
