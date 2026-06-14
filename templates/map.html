@@ -25,7 +25,7 @@
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // 載入軌道 + 儲存所有坐標
+        // 載入軌道
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(r => r.json())
             .then(data => {
@@ -56,25 +56,27 @@
                 }).addTo(map);
             });
 
-        // 平滑沿線移動
+        // 高平滑度移動
         function startTrainMovement() {
             if (trainMarker) map.removeLayer(trainMarker);
+
+            let currentIndex = 0;
+            let subProgress = 0;
 
             function moveTrain() {
                 if (trackCoords.length < 50) return;
 
-                const total = trackCoords.length;
-                const progress = (Date.now() % 30000) / 30000; // 30秒循環
+                subProgress += 0.08;   // 控制速度，數字越大越快
+                if (subProgress >= 1) {
+                    subProgress = 0;
+                    currentIndex = (currentIndex + 1) % (trackCoords.length - 1);
+                }
 
-                // 線性插值計算精確位置
-                const position = Math.floor(progress * (total - 1));
-                const remainder = (progress * (total - 1)) - position;
+                const p1 = trackCoords[currentIndex];
+                const p2 = trackCoords[currentIndex + 1];
 
-                const p1 = trackCoords[position];
-                const p2 = trackCoords[Math.min(position + 1, total - 1)];
-
-                const lat = p1[1] + (p2[1] - p1[1]) * remainder;
-                const lng = p1[0] + (p2[0] - p1[0]) * remainder;
+                const lat = p1[1] + (p2[1] - p1[1]) * subProgress;
+                const lng = p1[0] + (p2[0] - p1[0]) * subProgress;
 
                 if (!trainMarker) {
                     trainMarker = L.circleMarker([lat, lng], {
@@ -89,11 +91,11 @@
                 }
             }
 
-            setInterval(moveTrain, 300);   // 每0.3秒更新一次，更平滑
+            setInterval(moveTrain, 50);   // 每50毫秒更新一次，非常平滑
             moveTrain();
         }
 
-        setTimeout(startTrainMovement, 2500);
+        setTimeout(startTrainMovement, 2000);
     </script>
 </body>
 </html>
