@@ -22,12 +22,12 @@
         var map = L.map('map').setView([22.3193, 114.1694], 12);
         var trainMarker = null;
         var trackCoords = [];
+        var distances = [];
         var totalDistance = 0;
-        var distances = [];   // 累積距離陣列
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // 載入軌道
+        // 軌道
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(r => r.json())
             .then(data => {
@@ -39,20 +39,19 @@
                     }
                 });
 
-                // 計算累積距離，讓移動速度恆定
-                let cumulative = 0;
+                // 計算累積距離
+                let cum = 0;
                 distances.push(0);
                 for (let i = 1; i < trackCoords.length; i++) {
                     const dx = trackCoords[i][0] - trackCoords[i-1][0];
                     const dy = trackCoords[i][1] - trackCoords[i-1][1];
-                    cumulative += Math.sqrt(dx*dx + dy*dy);
-                    distances.push(cumulative);
+                    cum += Math.sqrt(dx*dx + dy*dy);
+                    distances.push(cum);
                 }
-                totalDistance = cumulative;
-                console.log("軌道總長度:", totalDistance.toFixed(4), "總點數:", trackCoords.length);
+                totalDistance = cum;
             });
 
-        // 車站
+        // 車站（修正名稱顯示）
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(r => r.json())
             .then(data => {
@@ -64,7 +63,8 @@
                     onEachFeature: function(feature, layer) {
                         var zhName = feature.properties["StationName:zh"] || "未知站";
                         var code = feature.properties.StationCode || "";
-                        layer.bindPopup(`<b>\( {zhName} ( \){code})</b><br>上行：載入中...<br>下行：載入中...`);
+                        var popupContent = "<b>" + zhName + "</b> (" + code + ")<br>上行：載入中...<br>下行：載入中...";
+                        layer.bindPopup(popupContent);
                     }
                 }).addTo(map);
             });
@@ -76,42 +76,34 @@
             function moveTrain() {
                 if (trackCoords.length < 50 || totalDistance === 0) return;
 
-                const cycleTime = 25000; // 25秒走完整條線
-                const progress = (Date.now() % cycleTime) / cycleTime;
-                const targetDistance = progress * totalDistance;
+                const cycle = 28000; // 28秒走完整條線
+                const progress = (Date.now() % cycle) / cycle;
+                const targetDist = progress * totalDistance;
 
-                // 找到最接近目標距離的點
                 let i = 0;
-                while (i < distances.length - 1 && distances[i + 1] < targetDistance) i++;
+                while (i < distances.length - 1 && distances[i+1] < targetDist) i++;
 
-                const dist1 = distances[i];
-                const dist2 = distances[i + 1];
-                const ratio = (targetDistance - dist1) / (dist2 - dist1);
-
+                const ratio = (targetDist - distances[i]) / (distances[i+1] - distances[i]);
                 const p1 = trackCoords[i];
-                const p2 = trackCoords[i + 1];
+                const p2 = trackCoords[i+1];
 
                 const lat = p1[1] + (p2[1] - p1[1]) * ratio;
                 const lng = p1[0] + (p2[0] - p1[0]) * ratio;
 
                 if (!trainMarker) {
                     trainMarker = L.circleMarker([lat, lng], {
-                        radius: 8,
-                        color: "#ffffff",
-                        fillColor: "#ef4444",
-                        fillOpacity: 1,
-                        weight: 3.5
+                        radius: 8, color: "#fff", fillColor: "#ef4444", fillOpacity: 1, weight: 3.5
                     }).addTo(map);
                 } else {
                     trainMarker.setLatLng([lat, lng]);
                 }
             }
 
-            setInterval(moveTrain, 80);   // 高頻更新
+            setInterval(moveTrain, 80);
             moveTrain();
         }
 
-        setTimeout(startTrainMovement, 2500);
+        setTimeout(startTrainMovement, 2000);
     </script>
 </body>
 </html>
