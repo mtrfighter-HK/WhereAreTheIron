@@ -31,7 +31,7 @@
                 L.geoJSON(data, { style: { color: "#ed1d24", weight: 5, opacity: 0.75 } }).addTo(map);
             });
 
-        // 車站
+        // 車站（使用傳統字符串拼接）
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(r => r.json())
             .then(data => {
@@ -43,12 +43,13 @@
                     onEachFeature: function(feature, layer) {
                         var zhName = feature.properties["StationName:zh"] || "未知站";
                         var code = feature.properties.StationCode || "";
-                        layer.bindPopup(`<b>\( {zhName} ( \){code})</b><br>上行：載入中...<br>下行：載入中...`);
+                        var popupContent = "<b>" + zhName + "</b> (" + code + ")<br>上行：載入中...<br>下行：載入中...";
+                        layer.bindPopup(popupContent);
                     }
                 }).addTo(map);
             });
 
-        // 接入真實 API + U/D 標記
+        // 接入 API 顯示列車 (U/D)
         async function updateLiveTrains() {
             try {
                 const res = await fetch('/api/live');
@@ -59,17 +60,18 @@
 
                 Object.keys(trains).forEach(id => {
                     const train = trains[id];
+                    // 暫時模擬位置
                     const lat = 22.28 + (train.progress || 0.3) * 0.1;
                     const lng = 114.15 + (train.progress || 0.3) * 0.08;
 
                     const isUp = train.direction === "UP";
                     const label = isUp ? "U" : "D";
-                    const color = isUp ? "#ef4444" : "#f59e0b";   // 上行紅，下行橙（綠色留給其他線）
+                    const color = isUp ? "#ef4444" : "#f59e0b";
 
                     var marker = L.marker([lat, lng], {
                         icon: L.divIcon({
-                            className: 'train-label',
-                            html: `<div style="background:\( {color}; color:white; width:18px; height:18px; border-radius:50%; border:2px solid white; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; box-shadow:0 2px 6px rgba(0,0,0,0.3);"> \){label}</div>`,
+                            className: '',
+                            html: `<div style="background:\( {color};color:white;width:18px;height:18px;border-radius:50%;border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;box-shadow:0 2px 6px rgba(0,0,0,0.3);"> \){label}</div>`,
                             iconSize: [18, 18],
                             iconAnchor: [9, 9]
                         })
@@ -80,7 +82,7 @@
                     trainMarkers[id] = marker;
                 });
             } catch (e) {
-                console.error("API 獲取失敗", e);
+                console.error("更新列車失敗", e);
             }
         }
 
