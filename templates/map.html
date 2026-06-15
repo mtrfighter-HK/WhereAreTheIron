@@ -48,7 +48,7 @@
                 }).addTo(map);
             });
 
-        // 真實 API 對接 + U/D 顯示
+        // 接入真實 API 並移動紅點
         async function updateLiveTrains() {
             try {
                 const res = await fetch('/api/live');
@@ -60,34 +60,31 @@
 
                 Object.keys(trains).forEach(id => {
                     const train = trains[id];
-                    // 暫時用 progress 模擬位置（之後會改成真實計算）
-                    const baseLat = 22.28;
-                    const baseLng = 114.15;
-                    const lat = baseLat + (train.progress || 0.3) * 0.12;
-                    const lng = baseLng + (train.progress || 0.3) * 0.1;
+                    // 使用 progress 計算位置（0 = 起點, 1 = 終點）
+                    const progress = train.progress || 0.3;
 
-                    const isUp = train.direction === "UP";
-                    const label = isUp ? "U" : "D";
-                    const color = isUp ? "#ef4444" : "#f59e0b";
+                    // 暫時用簡單線性映射（之後會用真實軌道插值）
+                    const lat = 22.281 + progress * 0.1;
+                    const lng = 114.158 + progress * 0.025;
 
-                    var marker = L.marker([lat, lng], {
-                        icon: L.divIcon({
-                            html: `<div style="background:\( {color}; color:white; width:20px; height:20px; border-radius:50%; border:2px solid white; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; box-shadow:0 2px 6px rgba(0,0,0,0.4);"> \){label}</div>`,
-                            iconSize: [20, 20],
-                            iconAnchor: [10, 10]
-                        })
+                    var marker = L.circleMarker([lat, lng], {
+                        radius: 7.5,
+                        color: "#ffffff",
+                        fillColor: "#ef4444",
+                        fillOpacity: 1,
+                        weight: 3.5
                     }).addTo(map);
 
-                    marker.bindPopup(`<b>列車 ${label}</b><br>往 ${train.dest}<br>方向: ${train.direction}`);
+                    marker.bindPopup(`<b>列車 ${train.direction}</b><br>往 ${train.dest}<br>進度: ${Math.round(progress * 100)}%`);
 
                     trainMarkers[id] = marker;
                 });
             } catch (e) {
-                console.error("更新列車失敗", e);
+                console.error("API 更新失敗", e);
             }
         }
 
-        setInterval(updateLiveTrains, 8000);
+        setInterval(updateLiveTrains, 7000);
         updateLiveTrains();
     </script>
 </body>
