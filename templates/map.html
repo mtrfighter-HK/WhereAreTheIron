@@ -24,17 +24,22 @@
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // 軌道 + 車站 (保持不變)
+        // 軌道
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
             .then(r => r.json())
-            .then(data => L.geoJSON(data, { style: { color: "#ed1d24", weight: 5, opacity: 0.75 } }).addTo(map));
+            .then(data => {
+                L.geoJSON(data, { style: { color: "#ed1d24", weight: 5, opacity: 0.75 } }).addTo(map);
+            });
 
+        // 車站
         fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
             .then(r => r.json())
             .then(data => {
                 L.geoJSON(data, {
                     filter: f => f.properties.StationCode !== "NIL",
-                    pointToLayer: (f, latlng) => L.circleMarker(latlng, {radius: 5, color: "#333", fillColor: "#fff", fillOpacity: 0.9, weight: 3}),
+                    pointToLayer: (f, latlng) => L.circleMarker(latlng, {
+                        radius: 5, color: "#333", fillColor: "#fff", fillOpacity: 0.9, weight: 3
+                    }),
                     onEachFeature: function(feature, layer) {
                         var zhName = feature.properties["StationName:zh"] || "未知站";
                         var code = feature.properties.StationCode || "";
@@ -43,33 +48,47 @@
                 }).addTo(map);
             });
 
-        // 測試列車點（強制顯示）
-        function showTestTrains() {
-            Object.values(trainMarkers).forEach(m => map.removeLayer(m));
-            trainMarkers = {};
+        // 真實 API 對接 + U/D 顯示
+        async function updateLiveTrains() {
+            try {
+                const res = await fetch('/api/live');
+                const trains = await res.json();
 
-            const testTrains = [
-                {id: "U1", lat: 22.281, lng: 114.160, label: "U", color: "#ef4444"},
-                {id: "D1", lat: 22.305, lng: 114.172, label: "D", color: "#f59e0b"},
-                {id: "U2", lat: 22.325, lng: 114.165, label: "U", color: "#ef4444"}
-            ];
+                // 清除舊標記
+                Object.values(trainMarkers).forEach(m => map.removeLayer(m));
+                trainMarkers = {};
 
-            testTrains.forEach(train => {
-                var marker = L.marker([train.lat, train.lng], {
-                    icon: L.divIcon({
-                        html: `<div style="background:\( {train.color};color:white;width:20px;height:20px;border-radius:50%;border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;"> \){train.label}</div>`,
-                        iconSize: [20, 20],
-                        iconAnchor: [10, 10]
-                    })
-                }).addTo(map);
+                Object.keys(trains).forEach(id => {
+                    const train = trains[id];
+                    // 暫時用 progress 模擬位置（之後會改成真實計算）
+                    const baseLat = 22.28;
+                    const baseLng = 114.15;
+                    const lat = baseLat + (train.progress || 0.3) * 0.12;
+                    const lng = baseLng + (train.progress || 0.3) * 0.1;
 
-                marker.bindPopup(`<b>測試列車 ${train.label}</b>`);
-                trainMarkers[train.id] = marker;
-            });
+                    const isUp = train.direction === "UP";
+                    const label = isUp ? "U" : "D";
+                    const color = isUp ? "#ef4444" : "#f59e0b";
+
+                    var marker = L.marker([lat, lng], {
+                        icon: L.divIcon({
+                            html: `<div style="background:\( {color}; color:white; width:20px; height:20px; border-radius:50%; border:2px solid white; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; box-shadow:0 2px 6px rgba(0,0,0,0.4);"> \){label}</div>`,
+                            iconSize: [20, 20],
+                            iconAnchor: [10, 10]
+                        })
+                    }).addTo(map);
+
+                    marker.bindPopup(`<b>列車 ${label}</b><br>往 ${train.dest}<br>方向: ${train.direction}`);
+
+                    trainMarkers[id] = marker;
+                });
+            } catch (e) {
+                console.error("更新列車失敗", e);
+            }
         }
 
-        setInterval(showTestTrains, 10000);
-        showTestTrains();
+        setInterval(updateLiveTrains, 8000);
+        updateLiveTrains();
     </script>
 </body>
 </html>
