@@ -86,23 +86,20 @@ async def root():
 @app.get("/data", response_class=HTMLResponse)
 async def data_page():
     try:
-        # 獲取最新的 live 數據
-        import httpx
-        async with httpx.AsyncClient() as client:
-            live_res = await client.get("http://localhost:8000/api/live", timeout=5)
-            live_data = live_res.json() if live_res.status_code == 200 else {"error": "無法獲取"}
+        import requests
+        live_res = requests.get("http://localhost:8000/api/live", timeout=5)
+        live_data = live_res.json() if live_res.status_code == 200 else {"error": "無法獲取"}
     except:
         live_data = {"error": "無法連接 API"}
 
     html = f"""
     <html>
     <head><meta charset="UTF-8"><title>MTR 數據後台</title></head>
-    <body style="font-family:Arial; padding:20px;">
+    <body style="font-family:Arial; padding:20px; line-height:1.6;">
         <h1>📊 MTR 數據後台</h1>
         <p><a href="/">← 返回地圖</a></p>
-        <h2>目前已收集筆數： [從資料庫]</h2>
         <h2>/api/live 返回數據：</h2>
-        <pre style="background:#f4f4f4; padding:15px; border-radius:8px; overflow:auto; font-size:14px;">{live_data}</pre>
+        <pre style="background:#f4f4f4; padding:15px; border-radius:8px; overflow:auto; font-size:14px; white-space:pre-wrap;">{live_data}</pre>
     </body>
     </html>
     """
