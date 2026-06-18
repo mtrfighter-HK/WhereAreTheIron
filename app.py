@@ -17,7 +17,6 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-# 初始化資料庫
 conn = get_db()
 conn.execute('''CREATE TABLE IF NOT EXISTS mtr_ttnt (
     id INTEGER PRIMARY KEY,
@@ -33,11 +32,14 @@ conn.execute('''CREATE TABLE IF NOT EXISTS mtr_ttnt (
 conn.commit()
 conn.close()
 
+# ====================== 荃灣線配置 ======================
+TWL_UP_ORDER = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"]
+
 # ====================== 背景收集器 ======================
 def background_collector():
     while True:
         try:
-            stations = [("TWL", "TSW"), ("TWL", "TWH"), ("TWL", "KWH"), ("TWL", "CEN"), ("TWL", "ADM")]
+            stations = [("TWL", s) for s in TWL_UP_ORDER]
             conn = get_db()
             c = conn.cursor()
             for line, sta in stations:
@@ -68,11 +70,11 @@ threading.Thread(target=background_collector, daemon=True).start()
 # ====================== 真實列車位置 API ======================
 @app.get("/api/live")
 async def get_live_trains():
-    # 暫時用模擬數據，之後會從資料庫計算真實位置
+    # 暫時返回模擬數據，之後會從資料庫計算真實位置
     return {
-        "TWL-UP-1": {"line": "TWL", "direction": "UP", "from": "CEN", "to": "TSW", "progress": 0.25, "dest": "荃灣"},
-        "TWL-UP-2": {"line": "TWL", "direction": "UP", "from": "ADM", "to": "TSW", "progress": 0.65, "dest": "荃灣"},
-        "TWL-DOWN-1": {"line": "TWL", "direction": "DOWN", "from": "TSW", "to": "CEN", "progress": 0.45, "dest": "中環"},
+        "TWL-UP-1": {"line": "TWL", "direction": "UP", "from": "CEN", "to": "ADM", "progress": 0.4, "dest": "荃灣"},
+        "TWL-UP-2": {"line": "TWL", "direction": "UP", "from": "ADM", "to": "TST", "progress": 0.7, "dest": "荃灣"},
+        "TWL-DOWN-1": {"line": "TWL", "direction": "DOWN", "from": "TSW", "to": "TWH", "progress": 0.3, "dest": "中環"},
     }
 
 # ====================== 路由 ======================
