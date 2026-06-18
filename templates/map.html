@@ -13,17 +13,14 @@
     </style>
 </head>
 <body>
-    <div class="title">🗺️ 港鐵實時地圖 - 荃灣綫 [MAP-v3.1]</div>
+    <div class="title">🗺️ 港鐵實時地圖 - 荃灣綫</div>
     <a href="/data" class="data-btn">📊 數據後台</a>
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         var map = L.map('map').setView([22.3193, 114.1694], 12);
-        var trainMarker = null;
-        var trackCoords = [];
-        var distances = [];
-        var totalDistance = 0;
+        var trainMarkers = {};
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
@@ -32,23 +29,6 @@
             .then(r => r.json())
             .then(data => {
                 L.geoJSON(data, { style: { color: "#ed1d24", weight: 5, opacity: 0.75 } }).addTo(map);
-
-                data.features.forEach(f => {
-                    if (f.geometry.type === "LineString") {
-                        trackCoords = trackCoords.concat(f.geometry.coordinates);
-                    }
-                });
-
-                // 計算累積距離（解決速度不均）
-                let cum = 0;
-                distances = [0];
-                for (let i = 1; i < trackCoords.length; i++) {
-                    const dx = trackCoords[i][0] - trackCoords[i-1][0];
-                    const dy = trackCoords[i][1] - trackCoords[i-1][1];
-                    cum += Math.sqrt(dx*dx + dy*dy);
-                    distances.push(cum);
-                }
-                totalDistance = cum || 1;
             });
 
         // 車站
@@ -63,51 +43,48 @@
                     onEachFeature: function(feature, layer) {
                         var zhName = feature.properties["StationName:zh"] || "未知站";
                         var code = feature.properties.StationCode || "";
-                        var content = "<b>" + zhName + "</b> (" + code + ")<br>上行：載入中...<br>下行：載入中...";
-                        layer.bindPopup(content);
+                        layer.bindPopup(`<b>\( {zhName} ( \){code})</b><br>上行：載入中...<br>下行：載入中...`);
                     }
                 }).addTo(map);
             });
 
-        // 恆速移動
-        function startTrainMovement() {
-            if (trainMarker) map.removeLayer(trainMarker);
+        // 接入真實 API 並顯示列車
+        async function updateLiveTrains() {
+            try {
+                const res = await fetch('/api/live');
+                const trains = await res.json();
 
-            function moveTrain() {
-                if (trackCoords.length < 50 || totalDistance === 0) return;
+                // 清除舊標記
+                Object.values(trainMarkers).forEach(m => map.removeLayer(m));
+                trainMarkers = {};
 
-                const cycleTime = 28000; // 28秒走完整條線
-                const progress = (Date.now() % cycleTime) / cycleTime;
-                const targetDist = progress * totalDistance;
+                Object.keys(trains).forEach(id => {
+                    const train = trains[id];
+                    const progress = train.progress || 0.3;
 
-                let i = 0;
-                while (i < distances.length - 1 && distances[i+1] < targetDist) i++;
+                    // 暫時簡單線性映射（之後會改成真實站序 + TravelTime 計算）
+                    const lat = 22.28 + progress * 0.12;
+                    const lng = 114.155 + progress * 0.035;
 
-                const ratio = (targetDist - distances[i]) / (distances[i+1] - distances[i]);
-                const p1 = trackCoords[i];
-                const p2 = trackCoords[i + 1];
-
-                const lat = p1[1] + (p2[1] - p1[1]) * ratio;
-                const lng = p1[0] + (p2[0] - p1[0]) * ratio;
-
-                if (!trainMarker) {
-                    trainMarker = L.circleMarker([lat, lng], {
-                        radius: 8,
+                    var marker = L.circleMarker([lat, lng], {
+                        radius: 7.5,
                         color: "#ffffff",
                         fillColor: "#ef4444",
                         fillOpacity: 1,
                         weight: 3.5
                     }).addTo(map);
-                } else {
-                    trainMarker.setLatLng([lat, lng]);
-                }
-            }
 
-            setInterval(moveTrain, 80);
-            moveTrain();
+                    marker.bindPopup(`<b>列車 ${train.direction}</b><br>往 ${train.dest}<br>進度: ${Math.round(progress * 100)}%`);
+
+                    trainMarkers[id] = marker;
+                });
+            } catch (e) {
+                console.error("API 更新失敗", e);
+            }
         }
 
-        setTimeout(startTrainMovement, 2500);
+        setInterval(updateLiveTrains, 6000);
+        updateLiveTrains();
     </script>
 </body>
 </html>
