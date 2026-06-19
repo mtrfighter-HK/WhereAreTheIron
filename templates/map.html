@@ -24,13 +24,21 @@
             color: #111111; font-weight: bold; text-shadow: 1px 1px 2px #ffffff;
             font-size: 12px;
         }
+        
+        /* 【調整 1】徹底消除 Leaflet Tooltip 預設的白色小箭頭 */
+        .leaflet-tooltip-left::before,
+        .leaflet-tooltip-right::before,
+        .leaflet-tooltip-top::before,
+        .leaflet-tooltip-bottom::before {
+            display: none !important;
+        }
 
-        /* 列車圖標樣式：白圈 + 路線顏色（荃灣綫紅色）內芯 */
+        /* 【調整 2】列車圖標縮小：配合車站 6px 半徑，縮小至 9px 總大小，內芯更精緻 */
         .train-icon {
             background-color: #ffffff;
-            border: 3px solid #E2231A; /* 荃灣綫紅色 */
+            border: 2px solid #E2231A; /* 荃灣綫紅色 */
             border-radius: 50%;
-            box-shadow: 0 0 4px rgba(0,0,0,0.3);
+            box-shadow: 0 0 3px rgba(0,0,0,0.2);
         }
     </style>
 </head>
@@ -44,7 +52,7 @@
         // 1. 初始化地圖
         var map = L.map('map').setView([22.321, 114.170], 13);
 
-        // 2. 採用最乾淨、最淡色的白色主題底圖，完美突出軌道與列車資訊
+        // 2. 乾淨明亮底圖
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; OpenStreetMap &copy; CARTO'
         }).addTo(map);
@@ -66,49 +74,51 @@
                 L.geoJSON(geojsonData, {
                     pointToLayer: function (feature, latlng) {
                         var props = feature.properties;
-                        // 讀取車站代碼
                         var staCode = props.StationCode || props.station_code || props.code;
                         
                         if (staCode && staCode !== "NIL") {
                             stationCoords[staCode.toUpperCase()] = [latlng.lat, latlng.lng];
                         }
                         
-                        // 港鐵路線圖經典黑白圈效果
+                        // 車站外黑圈 (半徑 6px)
                         L.circleMarker(latlng, {
                             radius: 6, color: '#000000', fillColor: '#ffffff', fillOpacity: 1, weight: 2.5
                         }).addTo(map);
 
+                        // 車站內白圈
                         return L.circleMarker(latlng, {
                             radius: 2, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, weight: 1
                         });
                     },
                     onEachFeature: function (feature, layer) {
                         var props = feature.properties;
-                        // 【精準修復】讀取你 JSON 內的 "StationName:zh"
                         var staName = props["StationName:zh"] || props.station_name || "未知車站";
                         
-                        // 移除名稱後面的「站」字（例如「旺角站」變成「旺角」），更符合港鐵路線圖風格
                         if (staName.endsWith("站")) {
                             staName = staName.slice(0, -1);
                         }
 
-                        layer.bindTooltip(staName, { permanent: true, direction: 'right', className: 'station-label', offset: [5, 0] });
+                        // 透過 offset 將站名向右移 10px，不留箭頭，畫面更簡潔
+                        layer.bindTooltip(staName, { 
+                            permanent: true, 
+                            direction: 'right', 
+                            className: 'station-label', 
+                            offset: [10, 0] 
+                        });
                     }
                 }).addTo(map);
                 
-                // 載入完車站即撈列車位置
                 updateTrainPositions();
                 setInterval(updateTrainPositions, 10000);
             }).catch(err => console.error("車站載入錯誤:", err));
 
-        // 5. 實時列車位置動態內插算法
+        // 5. 實時列車位置動態算法
         function updateTrainPositions() {
             fetch('/api/live')
                 .then(res => res.json())
                 .then(response => {
                     if (response.status !== "success") return;
                     
-                    // 清除上一動態標記
                     Object.values(trainMarkers).forEach(marker => map.removeLayer(marker));
                     trainMarkers = {};
 
@@ -134,12 +144,12 @@
                             finalLatlng = [lat, lng];
                         }
 
-                        // 【樣式修改】極簡設計：純白底 + 紅色邊框圓圈，不帶箭頭
+                        // 【調整 2】將 iconSize 縮小至 [9, 9]，並且調整錨點 [4.5, 4.5] 確保精準置中
                         var trainHtmlIcon = L.divIcon({
                             className: 'train-icon',
-                            html: '', // 內部留空，由 CSS 繪製黑白圈/紅圈效果
-                            iconSize: [14, 14],
-                            iconAnchor: [7, 7]
+                            html: '', 
+                            iconSize: [9, 9],
+                            iconAnchor: [4.5, 4.5]
                         });
 
                         var markerId = `${train.line}_${currentSta}_${direction}`;
