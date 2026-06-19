@@ -31,7 +31,7 @@
             display: none !important;
         }
 
-        /* 列車圖標縮小至 9px */
+        /* 列車圖標 */
         .train-icon {
             background-color: #ffffff;
             border: 2px solid #E2231A; 
@@ -47,25 +47,22 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // 1. 初始化地圖
         var map = L.map('map').setView([22.321, 114.170], 13);
 
-        // 2. 乾淨明亮底圖
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; OpenStreetMap &copy; CARTO'
         }).addTo(map);
 
-        // ==================== 【功能 1：強制圖層次序】 ====================
-        // 創建獨立的窗格（Panes）並設定 z-index，數字越大層級越高
-        map.createPane('trackPane').style.zIndex = 450;   // 軌道層
-        map.createPane('stationPane').style.zIndex = 500; // 車站層
-        map.createPane('trainPane').style.zIndex = 550;   // 列車層
+        // 強制圖層次序
+        map.createPane('trackPane').style.zIndex = 450;   
+        map.createPane('stationPane').style.zIndex = 500; 
+        map.createPane('trainPane').style.zIndex = 550;   
 
         var stationCoords = {}; 
-        var stationLayers = {}; // 儲存車站圖層引用，方便動態更新 Popup
+        var stationLayers = {}; 
         var trainMarkers = {};
 
-        // 3. 載入荃灣綫軌道線（放入 trackPane）
+        // 3. 載入荃灣綫軌道線
         fetch('/路線軌道檔/Track.TsuenWanLine.geojson')
             .then(res => res.json())
             .then(geojsonData => {
@@ -75,7 +72,7 @@
                 }).addTo(map);
             });
 
-        // 4. 載入車站點（放入 stationPane）
+        // 4. 載入車站點
         fetch('/系統基本檔/StationLocation_2026_06.geojson')
             .then(res => res.json())
             .then(geojsonData => {
@@ -88,22 +85,22 @@
                             stationCoords[staCode.toUpperCase()] = [latlng.lat, latlng.lng];
                         }
                         
-                        // 車站外黑圈 (半徑 6px)
-                        L.circleMarker(latlng, {
+                        // 【修正 1】將實際觸發 Popup 嘅 Layer 設為最上層、面積較大嘅外黑圈
+                        var outerMarker = L.circleMarker(latlng, {
                             radius: 6, color: '#000000', fillColor: '#ffffff', fillOpacity: 1, weight: 2.5,
                             pane: 'stationPane'
                         }).addTo(map);
 
-                        // 車站內白圈
-                        var mainMarker = L.circleMarker(latlng, {
+                        // 畫內白圈 (純視覺裝飾)
+                        L.circleMarker(latlng, {
                             radius: 2, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, weight: 1,
                             pane: 'stationPane'
-                        });
+                        }).addTo(map);
 
                         if (staCode) {
-                            stationLayers[staCode.toUpperCase()] = mainMarker;
+                            stationLayers[staCode.toUpperCase()] = outerMarker; // 記錄外圈，用來動態塞資料
                         }
-                        return mainMarker;
+                        return outerMarker; // 回傳外圈，讓 onEachFeature 將 Tooltip/Popup 綁定喺佢身上
                     },
                     onEachFeature: function (feature, layer) {
                         var props = feature.properties;
@@ -113,22 +110,19 @@
                             staName = staName.slice(0, -1);
                         }
 
-                        // 站名文字標籤
                         layer.bindTooltip(staName, { 
                             permanent: true, direction: 'right', className: 'station-label', offset: [10, 0] 
                         });
 
-                        // 先綁定一個預設的 Popup，等 API 數據載入後會動態更新
                         layer.bindPopup(`<b>${staName}</b><br>正在獲取實時班次...`);
                     }
                 }).addTo(map);
                 
-                // 載入完車站即撈列車位置與數據
                 updateTrainPositions();
                 setInterval(updateTrainPositions, 10000);
             }).catch(err => console.error("車站載入錯誤:", err));
 
-        // 5. 實時列車位置動態算法（包含【功能 2：車站數據】與【功能 3：列車去重】）
+        // 5. 實時列車位置與去重算法
         function updateTrainPositions() {
             fetch('/api/live')
                 .then(res => res.json())
@@ -141,17 +135,17 @@
 
                     var trainData = response.data;
 
-                    // ------------------ 【功能 3：列車數據去重】 ------------------
-                    // 利用 Map 物件，以「方向+目的地+時間」作為唯一 Key，如果重複則只取最新的一筆
+                    // ------------------ 【修正 2：更科學的列車數據去重】 ------------------
+                    // 港鐵同一個方向可以有多部車。我們應該以「車站+方向」作為唯一 Key。
+                    // 這樣可以防止「因為整條線方向目的地相同，導致其他車站的列車被無辜濾走」的問題！
                     var uniqueTrains = new Map();
                     trainData.forEach(train => {
-                        // Key 組合：線路_方向_目的地
-                        var uniqueKey = `${train.line}_${train.direction}_${train.dest}`;
+                        var uniqueKey = `${train.line}_${train.station.toUpperCase()}_${train.direction}`;
                         
                         if (!uniqueTrains.has(uniqueKey)) {
                             uniqueTrains.set(uniqueKey, train);
                         } else {
-                            // 如果已經有了，比較 ttnt，通常選即將到站（ttnt 較小）的更準確
+                            // 同一車站同方向如果重複，取到站時間更近（ttnt更小）的
                             var existing = uniqueTrains.get(uniqueKey);
                             if (parseInt(train.ttnt) < parseInt(existing.ttnt)) {
                                 uniqueTrains.set(uniqueKey, train);
@@ -159,16 +153,14 @@
                         }
                     });
 
-                    // 建立一個物件，用來統計每個車站的實時班次，準備塞入車站 Popup
                     var stationSchedules = {};
 
-                    // 遍歷去重後的列車，渲染到地圖上
+                    // 渲染列車
                     uniqueTrains.forEach(train => {
                         var currentSta = train.station.toUpperCase();
                         var ttnt = parseInt(train.ttnt);
                         var direction = train.direction; 
                         
-                        // 收集數據給車站的 Popup
                         if (!stationSchedules[currentSta]) {
                             stationSchedules[currentSta] = [];
                         }
@@ -179,7 +171,7 @@
                         var targetLatlng = stationCoords[currentSta];
                         var finalLatlng = targetLatlng;
                         
-                        // 計算兩站中間的內插位置
+                        // 計算內插位置
                         var prevSta = getPreviousStation(currentSta, direction);
                         if (prevSta && stationCoords[prevSta]) {
                             var prevLatlng = stationCoords[prevSta];
@@ -192,7 +184,6 @@
                             finalLatlng = [lat, lng];
                         }
 
-                        // 縮小至 9px，並放入特定的 trainPane 確保在最上層
                         var trainHtmlIcon = L.divIcon({
                             className: 'train-icon',
                             html: '', 
@@ -203,13 +194,13 @@
                         var markerId = `${train.line}_${currentSta}_${direction}`;
                         trainMarkers[markerId] = L.marker(finalLatlng, { 
                             icon: trainHtmlIcon,
-                            pane: 'trainPane' // 強制列車在最頂層
+                            pane: 'trainPane'
                         })
                         .addTo(map)
                         .bindPopup(`<b>目的地:</b> ${train.dest}<br><b>下一站:</b> ${currentSta}<br><b>時間:</b> ${ttnt} 分鐘後到站`);
                     });
 
-                    // ------------------ 【功能 2：動態更新車站點點的 Popup】 ------------------
+                    // ------------------ 更新車站 Popup 內容 ------------------
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
