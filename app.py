@@ -17,6 +17,7 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+# 初始化資料庫
 conn = get_db()
 conn.execute('''CREATE TABLE IF NOT EXISTS mtr_ttnt (
     id INTEGER PRIMARY KEY,
@@ -32,22 +33,21 @@ conn.execute('''CREATE TABLE IF NOT EXISTS mtr_ttnt (
 conn.commit()
 conn.close()
 
-# ====================== 荃灣線配置 ======================
-TWL_UP_ORDER = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"]
+# ====================== 荃灣線站序 ======================
+TWL_STATIONS = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"]
 
 # ====================== 背景收集器 ======================
 def background_collector():
     while True:
         try:
-            stations = [("TWL", s) for s in TWL_UP_ORDER]
             conn = get_db()
             c = conn.cursor()
-            for line, sta in stations:
+            for sta in TWL_STATIONS:
                 try:
-                    url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={line}&sta={sta}"
+                    url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=TWL&sta={sta}"
                     r = requests.get(url, timeout=8)
                     if r.status_code == 200:
-                        data = r.json().get('data', {}).get(f'{line}-{sta}', {})
+                        data = r.json().get('data', {}).get(f'TWL-{sta}', {})
                         now = datetime.now().isoformat()
                         for direction in ['UP', 'DOWN']:
                             if direction in data:
@@ -55,7 +55,7 @@ def background_collector():
                                     c.execute('''INSERT INTO mtr_ttnt 
                                         (timestamp, line, station, direction, dest, ttnt, is_delay, collected_at)
                                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                                        (now, line, sta, direction, train.get('dest'),
+                                        (now, "TWL", sta, direction, train.get('dest'),
                                          int(train.get('ttnt', 99)), train.get('isdelay', 'N'), now))
                 except:
                     pass
@@ -67,14 +67,14 @@ def background_collector():
 
 threading.Thread(target=background_collector, daemon=True).start()
 
-# ====================== 真實列車位置 API ======================
+# ====================== Live API ======================
 @app.get("/api/live")
 async def get_live_trains():
-    # 暫時返回模擬數據，之後會從資料庫計算真實位置
+    # 暫時返回模擬數據（之後會改成從資料庫計算真實位置）
     return {
-        "TWL-UP-1": {"line": "TWL", "direction": "UP", "from": "CEN", "to": "ADM", "progress": 0.4, "dest": "荃灣"},
-        "TWL-UP-2": {"line": "TWL", "direction": "UP", "from": "ADM", "to": "TST", "progress": 0.7, "dest": "荃灣"},
-        "TWL-DOWN-1": {"line": "TWL", "direction": "DOWN", "from": "TSW", "to": "TWH", "progress": 0.3, "dest": "中環"},
+        "TWL-UP-1": {"line": "TWL", "direction": "UP", "from": "CEN", "to": "TSW", "progress": 0.25, "dest": "荃灣"},
+        "TWL-UP-2": {"line": "TWL", "direction": "UP", "from": "ADM", "to": "TSW", "progress": 0.65, "dest": "荃灣"},
+        "TWL-DOWN-1": {"line": "TWL", "direction": "DOWN", "from": "TSW", "to": "CEN", "progress": 0.45, "dest": "中環"},
     }
 
 # ====================== 路由 ======================
@@ -86,12 +86,10 @@ async def root():
 @app.get("/data", response_class=HTMLResponse)
 async def data_page():
     try:
-        import requests
-        live_res = requests.get("http://localhost:8000/api/live", timeout=5)
-        live_data = live_res.json() if live_res.status_code == 200 else {"error": "無法獲取"}
+        live_data = get_live_trains()
     except:
-        live_data = {"error": "無法連接 API"}
-
+        live_data = {"error": "無法獲取"}
+    
     html = f"""
     <html>
     <head><meta charset="UTF-8"><title>MTR 數據後台</title></head>
@@ -105,6 +103,7 @@ async def data_page():
     """
     return HTMLResponse(html)
 
+# ====================== 啟動 ======================
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
