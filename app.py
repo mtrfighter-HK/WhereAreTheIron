@@ -1,6 +1,12 @@
 import os
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+
+# 掛載這兩個資料夾，讓瀏覽器可以直接存取裡面的 GeoJSON
+app.mount("/系統基本檔", StaticFiles(directory="系統基本檔"), name="base_files")
+app.mount("/路線軌道檔", StaticFiles(directory="路線軌道檔"), name="track_files")
+
 import sqlite3
 import requests
 import threading
