@@ -66,10 +66,20 @@ def background_collector():
 
 threading.Thread(target=background_collector, daemon=True).start()
 
-# ====================== 路由 ======================
+# ====================== 路由變更 ======================
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
+    # 點入網站首頁，直接顯示實時地圖
+    template_path = os.path.join("templates", "map.html")
+    if os.path.exists(template_path):
+        with open(template_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    return HTMLResponse("<h1>地圖檔案 templates/map.html 不存在</h1>", status_code=404)
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page():
+    # 原本的首頁變成了數據管理後台
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM mtr_ttnt")
@@ -79,24 +89,26 @@ async def home():
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head><meta charset="UTF-8"><title>MTR 收集器</title></head>
-    <body style="font-family:Arial;text-align:center;padding:50px;">
-        <h1>🚇 MTR 收集器運行中</h1>
-        <p>目前已收集 <strong>{total}</strong> 筆記錄</p>
-        <a href="/map" style="font-size:20px;color:blue;">🗺️ 前往實時地圖</a>
+    <head>
+        <meta charset="UTF-8">
+        <title>MTR 收集器數據後台</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; background-color: #fafafa; }}
+            .card {{ background: white; padding: 30px; border-radius: 8px; display: inline-block; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+            .btn {{ display: inline-block; margin-top: 20px; padding: 10px 20px; background: #E2231A; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; }}
+            .btn:hover {{ background: #b61c14; }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>🚇 MTR 數據收集後台</h1>
+            <p style="font-size: 18px;">系統目前已在 SQLite 資料庫安全建立 <strong>{total}</strong> 筆列車進站紀錄。</p>
+            <a href="/" class="btn">🗺️ 返回實時地圖首頁</a>
+        </div>
     </body>
     </html>
     """
     return HTMLResponse(html)
-
-@app.get("/map", response_class=HTMLResponse)
-async def map_page():
-    # 讀取獨立的 map.html 檔案並回傳
-    template_path = os.path.join("templates", "map.html")
-    if os.path.exists(template_path):
-        with open(template_path, "r", encoding="utf-8") as f:
-            return HTMLResponse(f.read())
-    return HTMLResponse("<h1>地圖檔案 templates/map.html 不存在</h1>", status_code=404)
 
 # ====================== 實時列車位置 API ======================
 @app.get("/api/live")
