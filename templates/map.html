@@ -6,159 +6,152 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; width: 100%; }
-        #map { height: 100%; width: 100%; background: #1a1a1a; }
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: Arial, sans-serif; }
+        #map { height: 100%; width: 100%; background: #f0f0f0; }
+        
+        /* 導航按鈕樣式 */
+        .nav-btn {
+            position: absolute; top: 15px; right: 15px; z-index: 1000;
+            background: white; border: 2px solid #ccc; padding: 10px 15px;
+            border-radius: 5px; font-weight: bold; text-decoration: none; color: #333;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .nav-btn:hover { background: #eee; }
+
+        /* 車站標籤 */
         .station-label {
             background: none !important; border: none !important; box-shadow: none !important;
-            color: #ffffff; font-weight: bold; text-shadow: 1px 1px 3px #000000;
-            font-size: 11px;
+            color: #333333; font-weight: bold; text-shadow: 1px 1px 2px #ffffff;
+            font-size: 12px;
         }
-        /* 列車圖標樣式 */
+
+        /* 實時列車標記 */
         .train-icon {
-            background-color: #E2231A;
-            border: 2px solid #ffffff;
-            border-radius: 50%;
-            color: white;
-            font-weight: bold;
-            font-size: 10px;
-            text-align: center;
-            line-height: 16px;
-            box-shadow: 0 0 8px #E2231A;
+            background-color: #E2231A; border: 2px solid #ffffff; border-radius: 50%;
+            color: white; font-weight: bold; font-size: 11px; text-align: center;
+            line-height: 18px; box-shadow: 0 0 6px rgba(226,35,26,0.6);
         }
     </style>
 </head>
 <body>
 
+    <a href="/admin" class="nav-btn">📊 前往數據後台</a>
+
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // 1. 初始化地圖（以香港為中心）
+        // 1. 初始化地圖（明亮主題）
         var map = L.map('map').setView([22.321, 114.170], 13);
 
-        // 2. 載入極簡深色底圖，突顯港鐵路線
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; OpenStreetMap &copy; CARTO'
+        // 2. 改用 OpenStreetMap 官方明亮白底圖
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
 
-        // 儲存全域變數，方便後續列車位置計算
         var stationCoords = {}; 
         var trainMarkers = {};
 
-        // 3. 異步載入你儲存在 GitHub/伺服器目錄下的 GeoJSON 檔案
-        // 讀取軌道線
-        fetch('/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94/Track.TsuenWanLine.geojson')
+        // 3. 載入軌道線
+        fetch('/路線軌道檔/Track.TsuenWanLine.geojson')
             .then(res => res.json())
             .then(geojsonData => {
-                L.geoJSON(geojsonData, {
-                    style: { color: '#E2231A', weight: 4, opacity: 0.8 }
-                }).addTo(map);
-            }).catch(err => console.error("軌道檔載入失敗:", err));
+                L.geoJSON(geojsonData, { style: { color: '#E2231A', weight: 5, opacity: 0.85 } }).addTo(map);
+            });
 
-        // 讀取車站點
-        fetch('/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94/StationLocation_2026_06.geojson')
+        // 4. 載入車站點（港鐵經典黑白圈風格）
+        fetch('/系統基本檔/StationLocation_2026_06.geojson')
             .then(res => res.json())
             .then(geojsonData => {
                 L.geoJSON(geojsonData, {
                     pointToLayer: function (feature, latlng) {
-                        // 紀錄車站代碼（例如 TSW, CEN）與其座標的對應，供列車定位使用
-                        var staCode = feature.properties.station_code || feature.properties.code;
+                        // 【欄位修正】自動匹配所有可能的車站代碼欄位
+                        var props = feature.properties;
+                        var staCode = props.station_code || props.code || props.STATION || props.StationCode;
+                        
                         if (staCode) {
-                            stationCoords[staCode] = [latlng.lat, latlng.lng];
+                            // 統一轉為大寫，方便與港鐵 API 的 "CEN", "TSW" 對接
+                            stationCoords[staCode.toUpperCase()] = [latlng.lat, latlng.lng];
                         }
                         
+                        // 畫外黑圈
+                        L.circleMarker(latlng, {
+                            radius: 6, color: '#000000', fillColor: '#ffffff', fillOpacity: 1, weight: 3
+                        }).addTo(map);
+
+                        // 畫內白圈 (達成黑白雙圈效果)
                         return L.circleMarker(latlng, {
-                            radius: 5, color: '#ffffff', fillColor: '#E2231A', fillOpacity: 1, weight: 2
+                            radius: 2, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, weight: 1
                         });
                     },
                     onEachFeature: function (feature, layer) {
-                        var staName = feature.properties.station_name || feature.properties.name || "未知車站";
-                        layer.bindTooltip(staName, { permanent: true, direction: 'right', className: 'station-label' });
+                        // 【欄位修正】自動匹配車站名稱
+                        var props = feature.properties;
+                        var staName = props.station_name || props.name || props.NAME_CHI || props.StationName || "未知車站";
+                        layer.bindTooltip(staName, { permanent: true, direction: 'right', className: 'station-label', offset: [5, 0] });
                     }
                 }).addTo(map);
                 
-                // 車站載入完成後，立刻執行第一次列車位置獲取
+                // 車站載入後立刻執行列車定位
                 updateTrainPositions();
-                // 設定每 15 秒自動刷新一次列車位置（實現實時動態效果）
-                setInterval(updateTrainPositions, 15000);
-            }).catch(err => console.error("車站點載入失敗:", err));
+                setInterval(updateTrainPositions, 10000); // 縮短至 10 秒刷新一次，動態更明顯
+            }).catch(err => console.error("車站載入錯誤:", err));
 
-        // 4. 核心邏輯：獲取數據並計算列車在軌道上的「移動位置」
+        // 5. 列車移動與計算邏輯
         function updateTrainPositions() {
             fetch('/api/live')
                 .then(res => res.json())
                 .then(response => {
                     if (response.status !== "success") return;
                     
-                    // 清除舊的列車標記
+                    // 清除舊標記
                     Object.values(trainMarkers).forEach(marker => map.removeLayer(marker));
                     trainMarkers = {};
 
-                    var trainData = response.data;
-                    
-                    trainData.forEach(train => {
-                        var currentSta = train.station;
-                        var ttnt = parseInt(train.total_time_needed || train.ttnt);
-                        var direction = train.direction; // UP 或 DOWN
+                    response.data.forEach(train => {
+                        var currentSta = train.station.toUpperCase();
+                        var ttnt = parseInt(train.ttnt);
+                        var direction = train.direction; 
                         
-                        // 確保我們有這個車站的座標
-                        if (!stationCoords[currentSta]) return;
+                        if (!stationCoords[currentSta]) return; // 如果找不到對應車站座標則跳過
                         
                         var targetLatlng = stationCoords[currentSta];
-                        var finalLatlng = targetLatlng; // 預設位置
+                        var finalLatlng = targetLatlng;
                         
-                        // 【共同開發之移動算法邏輯】：
-                        // 港鐵的 ttnt 代表還有多少分鐘到站。
-                        // 如果 ttnt = 1，代表快到站了，我們把車子放在非常接近該站的位置。
-                        // 如果 ttnt > 1，代表列車在「前一個車站」和「目前車站」之間。
-                        // 為了簡化計算，我們推估前一個車站的位置，並按比例將車子畫在中間。
-                        
+                        // 計算兩站中間的內插位置
                         var prevSta = getPreviousStation(currentSta, direction);
                         if (prevSta && stationCoords[prevSta]) {
                             var prevLatlng = stationCoords[prevSta];
+                            var ratio = 0.5; 
+                            if (ttnt === 1) ratio = 0.85;
+                            if (ttnt >= 3) ratio = 0.15;
                             
-                            // 根據 ttnt 計算車輛在兩站之間的百分比位置
-                            var ratio = 0.5; // 預設 ttnt=2 放在正中間 50%
-                            if (ttnt === 1) ratio = 0.85; // 快到站，放在 85% 位置
-                            if (ttnt >= 3) ratio = 0.15;  // 剛出發，放在 15% 位置
-                            
-                            // 內插法計算經緯度
                             var lat = prevLatlng[0] + (targetLatlng[0] - prevLatlng[0]) * ratio;
                             var lng = prevLatlng[1] + (targetLatlng[1] - prevLatlng[1]) * ratio;
                             finalLatlng = [lat, lng];
                         }
 
-                        // 建立列車的 HTML 圖標
                         var trainHtmlIcon = L.divIcon({
                             className: 'train-icon',
                             html: direction === 'UP' ? '▲' : '▼',
-                            iconSize: [16, 16],
-                            iconAnchor: [8, 8]
+                            iconSize: [18, 18],
+                            iconAnchor: [9, 9]
                         });
 
-                        // 畫上地圖
                         var markerId = `${train.line}_${currentSta}_${direction}`;
                         trainMarkers[markerId] = L.marker(finalLatlng, { icon: trainHtmlIcon })
                             .addTo(map)
-                            .bindPopup(`<b>列車方向:</b> ${train.dest}<br><b>狀態:</b> ${ttnt} 分鐘後抵達 ${currentSta}`);
+                            .bindPopup(`<b>目的地:</b> ${train.dest}<br><b>下一站:</b> ${currentSta}<br><b>時間:</b> ${ttnt} 分鐘後到站`);
                     });
-                }).catch(err => console.log("無法獲取實時列車數據:", err));
+                });
         }
 
-        // 荃灣綫車站順序鏈，用來找尋「上一站」以計算車輛行駛中位置
         const TWL_ORDER = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"];
-        
         function getPreviousStation(currentSta, direction) {
             var index = TWL_ORDER.indexOf(currentSta);
             if (index === -1) return null;
-            
-            // UP 代表往荃灣方向 (CEN -> TSW)，前一站就是 index - 1
-            // DOWN 代表往中環方向 (TSW -> CEN)，前一站就是 index + 1
-            if (direction === 'UP' && index > 0) {
-                return TWL_ORDER[index - 1];
-            } else if (direction === 'DOWN' && index < TWL_ORDER.length - 1) {
-                return TWL_ORDER[index + 1];
-            }
+            if (direction === 'UP' && index > 0) return TWL_ORDER[index - 1];
+            if (direction === 'DOWN' && index < TWL_ORDER.length - 1) return TWL_ORDER[index + 1];
             return null;
         }
     </script>
