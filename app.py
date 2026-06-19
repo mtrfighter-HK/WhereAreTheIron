@@ -103,6 +103,37 @@ async def data_page():
     """
     return HTMLResponse(html)
 
+# ====================== 實時列車位置 API ======================
+@app.get("/api/live")
+async def get_live_trains():
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 撈出最近 2 分鐘內每個車站、每個方向最新的一筆列車紀錄
+    # 這樣可以確保拿到的數據是最即時、沒有斷訊的
+    c.execute('''
+        SELECT line, station, direction, dest, ttnt, is_delay, timestamp 
+        FROM mtr_ttnt 
+        WHERE timestamp >= datetime('now', '-2 minutes')
+        GROUP BY line, station, direction
+        ORDER BY timestamp DESC
+    ''')
+    rows = c.fetchall()
+    conn.close()
+    
+    # 整理成乾淨的 JSON 格式傳給前端地圖
+    trains = []
+    for row in rows:
+        trains.append({
+            "line": row["line"],
+            "station": row["station"],
+            "direction": row["direction"],
+            "dest": row["dest"],
+            "ttnt": row["ttnt"],
+            "is_delay": row["is_delay"]
+        })
+    return {"status": "success", "data": trains}
+
 # ====================== 啟動 ======================
 if __name__ == "__main__":
     import uvicorn
