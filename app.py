@@ -6,9 +6,9 @@ import time
 import json
 from datetime import datetime
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
-app = FastAPI(title="MTR 實時地圖")
+app = FastAPI(title="MTR 實時地圖 - 荃灣綫")
 
 # ====================== 資料庫 ======================
 DB_PATH = "mtr_data.db"
@@ -34,43 +34,57 @@ conn.execute('''CREATE TABLE IF NOT EXISTS mtr_ttnt (
 conn.commit()
 conn.close()
 
-# ====================== 背景收集器 ======================
+# ====================== 背景收集器（正式營運版） ======================
 def background_collector():
+    # 完整追蹤荃灣綫（TWL）全綫 16 個車站的即時列車數據
+    stations = [
+        ("TWL", "CEN"), ("TWL", "ADM"), ("TWL", "TST"), ("TWL", "JOR"),
+        ("TWL", "YMT"), ("TWL", "MOK"), ("TWL", "PRE"), ("TWL", "SSP"),
+        ("TWL", "CSW"), ("TWL", "LCK"), ("TWL", "MEF"), ("TWL", "LAK"),
+        ("TWL", "KWF"), ("TWL", "KWH"), ("TWL", "TWH"), ("TWL", "TSW")
+    ]
+    
     while True:
         try:
-            stations = [("TWL", "TSW"), ("TWL", "CEN"), ("ISL", "CEN")]
             conn = get_db()
             c = conn.cursor()
+            now = datetime.now().isoformat()
+            
             for line, sta in stations:
                 try:
                     url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={line}&sta={sta}"
                     r = requests.get(url, timeout=8)
                     if r.status_code == 200:
                         data = r.json().get('data', {}).get(f'{line}-{sta}', {})
-                        now = datetime.now().isoformat()
                         for direction in ['UP', 'DOWN']:
                             if direction in data:
                                 for train in data[direction]:
-                                    c.execute('''INSERT INTO mtr_ttnt 
-                                        (timestamp, line, station, direction, dest, ttnt, is_delay, collected_at)
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                                        (now, line, sta, direction, train.get('dest'),
-                                         int(train.get('ttnt', 99)), train.get('isdelay', 'N'), now))
-                except:
-                    pass
+                                    # 過濾並只儲存有效的 ttnt 數據（一般港鐵 API 大於 0 才是有效時間）
+                                    ttnt_val = train.get('ttnt')
+                                    if ttnt_val is not None and str(ttnt_val).isdigit():
+                                        c.execute('''INSERT INTO mtr_ttnt 
+                                            (timestamp, line, station, direction, dest, ttnt, is_delay, collected_at)
+                                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                                            (now, line, sta, direction, train.get('dest'),
+                                             int(ttnt_val), train.get('isdelay', 'N'), now))
+                except Exception as e:
+                    print(f"抓取車站 {sta} 失敗: {e}")
+            
             conn.commit()
             conn.close()
-        except:
-            pass
-        time.sleep(60)
+        except Exception as e:
+            print(f"資料庫寫入錯誤: {e}")
+            
+        # 每 30 秒抓取一次（港鐵數據大約每 30 秒至 1 分鐘更新，30秒能確保極高即時性）
+        time.sleep(30)
 
 threading.Thread(target=background_collector, daemon=True).start()
 
-# ====================== 路由變更 ======================
+# ====================== 路由 ======================
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
-    # 點入網站首頁，直接顯示實時地圖
+    # 首頁直接渲染實時地圖
     template_path = os.path.join("templates", "map.html")
     if os.path.exists(template_path):
         with open(template_path, "r", encoding="utf-8") as f:
@@ -79,7 +93,7 @@ async def home():
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page():
-    # 原本的首頁變成了數據管理後台
+    # 數據管理後台
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM mtr_ttnt")
@@ -110,16 +124,15 @@ async def admin_page():
     """
     return HTMLResponse(html)
 
-# ====================== 實時列車位置 API ======================
 @app.get("/api/live")
 async def get_live_trains():
     conn = get_db()
     c = conn.cursor()
-    # 撈出最近 5 分鐘內每個車站最新的一筆紀錄，確保數據連續性
+    # 撈出最近 3 分鐘內每個車站最新的一筆紀錄，確保數據的實時與精準
     c.execute('''
         SELECT line, station, direction, dest, ttnt, is_delay, timestamp 
         FROM mtr_ttnt 
-        WHERE timestamp >= datetime('now', '-5 minutes')
+        WHERE timestamp >= datetime('now', '-3 minutes') AND line = 'TWL'
         GROUP BY line, station, direction
         ORDER BY timestamp DESC
     ''')
@@ -138,7 +151,7 @@ async def get_live_trains():
         })
     return {"status": "success", "data": trains}
 
-# ====================== 替代 StaticFiles 方案：安全安全讀取 GeoJSON ======================
+# ====================== 讀取 GeoJSON 路由 ======================
 @app.get("/系統基本檔/StationLocation_2026_06.geojson")
 async def get_station_geojson():
     file_path = os.path.join("系統基本檔", "StationLocation_2026_06.geojson")
