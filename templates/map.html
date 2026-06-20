@@ -2,7 +2,7 @@
 <html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
-    <title>MTR 實時列車地圖 - 荃灣綫</title>
+    <title>MTR 實時列車地圖 - 終極事件驅動版</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
@@ -23,6 +23,7 @@
         .leaflet-tooltip-top::before, .leaflet-tooltip-bottom::before { display: none !important; }
         .train-icon {
             background-color: #ffffff; border: 2px solid #E2231A; border-radius: 50%; box-shadow: 0 0 3px rgba(0,0,0,0.2);
+            transition: transform 0.2s linear; /* 讓每秒的移動更平滑 */
         }
     </style>
 </head>
@@ -43,158 +44,141 @@
         map.createPane('stationPane').style.zIndex = 500; 
         map.createPane('trainPane').style.zIndex = 550;   
 
+        // 全局數據快取
         var stationCoords = {}; 
         var stationLayers = {}; 
-        var trainMarkers = {};
         var trackFeatures = []; 
+        var travelTimeConfig = {}; // 儲存站與站行車時間
+        
+        // 核心狀態監聽字典
+        var lastStationState = {}; 
+        var activeTrains = {}; // 目前正在軌道上跑的虛擬列車實體字典
 
-        // 3. 載入軌道線
-        fetch('/路線軌道檔/Track.TsuenWanLine.geojson')
-            .then(res => res.json())
-            .then(geojsonData => {
-                trackFeatures = geojsonData.features; 
-                L.geoJSON(geojsonData, { 
-                    style: { color: '#E2231A', weight: 4, opacity: 0.8 },
-                    pane: 'trackPane'
-                }).addTo(map);
-            });
+        // 1. 非同步加載所有基本檔
+        Promise.all([
+            fetch('/路線軌道檔/Track.TsuenWanLine.geojson').then(res => res.json()),
+            fetch('/系統基本檔/StationLocation_2026_06.geojson').then(res => res.json()),
+            // 讀取你提供的 Travel Time Config
+            fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94%2FTravelTimeConfig.json')
+                .then(res => res.json()).catch(() => null)
+        ]).then(([trackData, stationData, timeConfig]) => {
+            
+            // 快取軌道
+            trackFeatures = trackData.features;
+            L.geoJSON(trackData, { 
+                style: { color: '#E2231A', weight: 4, opacity: 0.8 }, pane: 'trackPane'
+            }).addTo(map);
 
-        // 4. 載入車站點
-        fetch('/系統基本檔/StationLocation_2026_06.geojson')
-            .then(res => res.json())
-            .then(geojsonData => {
-                L.geoJSON(geojsonData, {
-                    filter: function(feature) {
-                        var props = feature.properties;
-                        var code = props.StationCode || props.station_code || "";
-                        return code && code !== "NIL";
-                    },
-                    pointToLayer: function (feature, latlng) {
-                        var props = feature.properties;
-                        var staCode = (props.StationCode || props.station_code).toUpperCase();
-                        stationCoords[staCode] = [latlng.lat, latlng.lng];
-                        
-                        var outerMarker = L.circleMarker(latlng, {
-                            radius: 6, color: '#000000', fillColor: '#ffffff', fillOpacity: 1, weight: 2.5,
-                            pane: 'stationPane'
-                        }).addTo(map);
+            // 快取時間設定 (建立快速查詢 Key, 如 "CEN_ADM" 或 "TWL_CEN_ADM")
+            if (timeConfig && timeConfig.travel_times) {
+                timeConfig.travel_times.forEach(t => {
+                    var key = `${t.from}_${t.to}`;
+                    travelTimeConfig[key] = t.run_time_sec || t.duration_sec || 120; 
+                });
+            }
 
-                        L.circleMarker(latlng, {
-                            radius: 2, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, weight: 1,
-                            pane: 'stationPane'
-                        }).addTo(map);
+            // 渲染車站
+            L.geoJSON(stationData, {
+                filter: f => (f.properties.StationCode || f.properties.station_code || "") !== "NIL",
+                pointToLayer: function (feature, latlng) {
+                    var props = feature.properties;
+                    var staCode = (props.StationCode || props.station_code).toUpperCase();
+                    stationCoords[staCode] = [latlng.lat, latlng.lng];
+                    
+                    var outerMarker = L.circleMarker(latlng, { radius: 6, color: '#000000', fillColor: '#ffffff', fillOpacity: 1, weight: 2.5, pane: 'stationPane' }).addTo(map);
+                    L.circleMarker(latlng, { radius: 2, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, weight: 1, pane: 'stationPane' }).addTo(map);
+                    stationLayers[staCode] = outerMarker; 
+                    return outerMarker; 
+                },
+                onEachFeature: function (feature, layer) {
+                    var props = feature.properties;
+                    var staName = props["StationName:zh"] || "未知車站";
+                    if (staName.endsWith("站")) staName = staName.slice(0, -1);
+                    layer.bindTooltip(staName, { permanent: true, direction: 'right', className: 'station-label', offset: [10, 0] });
+                    layer.bindPopup(`<b>${staName}</b><br>等待訊號更新...`);
+                }
+            }).addTo(map);
 
-                        stationLayers[staCode] = outerMarker; 
-                        return outerMarker; 
-                    },
-                    onEachFeature: function (feature, layer) {
-                        var props = feature.properties;
-                        var staName = props["StationName:zh"] || "未知車站";
-                        var staCode = props.StationCode || "";
-                        if (staName.endsWith("站")) staName = staName.slice(0, -1);
+            // 啟動主輪詢：每 10 秒抓一次 API 進行事件分析
+            processTrainSchedules();
+            setInterval(processTrainSchedules, 10000);
 
-                        layer.bindTooltip(staName, { 
-                            permanent: true, direction: 'right', className: 'station-label', offset: [10, 0] 
-                        });
-                        layer.bindPopup(`<b>${staName} (${staCode})</b><br>暫無實時列車進站`);
-                    }
-                }).addTo(map);
-                
-                updateTrainPositions();
-                setInterval(updateTrainPositions, 10000);
-            }).catch(err => console.error("車站載入錯誤:", err));
+        }).catch(err => console.error("系統初始化失敗:", err));
 
-        // 5. 實時列車位置與去重算法
-        function updateTrainPositions() {
+
+        // 2. 主事件分析核心
+        function processTrainSchedules() {
             fetch('/api/live')
                 .then(res => res.json())
                 .then(response => {
                     if (response.status !== "success") return;
-                    
-                    Object.values(trainMarkers).forEach(marker => map.removeLayer(marker));
-                    trainMarkers = {};
-
                     var trainData = response.data;
-                    var uniqueTrains = new Map();
-                    
-                    trainData.forEach(train => {
-                        if (train.line !== "TWL") return;
-                        var uniqueKey = `${train.line}_${train.station.toUpperCase()}_${train.direction}`;
-                        
-                        if (!uniqueTrains.has(uniqueKey)) {
-                            uniqueTrains.set(uniqueKey, train);
-                        } else {
-                            var existing = uniqueTrains.get(uniqueKey);
-                            if (parseInt(train.ttnt) < parseInt(existing.ttnt)) {
-                                uniqueTrains.set(uniqueKey, train);
-                            }
-                        }
-                    });
 
+                    // 篩選並尋找每個車站方向的最優先列車（ttnt 最小）
+                    var currentGroup = {};
                     var stationSchedules = {};
 
-                    uniqueTrains.forEach(train => {
-                        var currentSta = train.station.toUpperCase(); // 這是「下一站」
-                        var ttnt = parseInt(train.ttnt);
-                        var direction = train.direction; // UP 或者是 DOWN
-                        
-                        if (!stationSchedules[currentSta]) {
-                            stationSchedules[currentSta] = [];
-                        }
+                    trainData.forEach(train => {
+                        if (train.line !== "TWL") return;
+                        var currentSta = train.station.toUpperCase();
+                        var dir = train.direction;
+                        var key = `${currentSta}_${dir}`;
+
+                        if (!stationSchedules[currentSta]) stationSchedules[currentSta] = [];
                         stationSchedules[currentSta].push(train);
 
-                        var finalLatlng = null;
-                        
-                        // 【正解校正 1】：對應港鐵官方與你軌道 GeoJSON 的方向屬性
-                        // API UP = 離開核心(往荃灣) = 你的 "Up" 軌道
-                        // API DOWN = 向核心(往中環) = 你的 "Down" 軌道
-                        var geojsonDir = (direction === "UP") ? "Up" : "Down";
-                        
-                        // 【正解校正 2】：獲取正確的「出發站」（上一站）
-                        var prevSta = getPreviousStation(currentSta, direction);
+                        if (!currentGroup[key] || parseInt(train.ttnt) < parseInt(currentGroup[key].ttnt)) {
+                            currentGroup[key] = train;
+                        }
+                    });
 
-                        if (prevSta) {
-                            // 尋找對應的實際軌道段
-                            var matchedTrack = trackFeatures.find(f => {
-                                var p = f.properties;
-                                return p.direction === geojsonDir && 
-                                       p.from === prevSta && 
-                                       p.to === currentSta;
-                            });
+                    // 遍歷當前 API 狀態，比對歷史狀態發送「發車」或「預生成」訊號
+                    Object.keys(currentGroup).forEach(key => {
+                        var currentTrain = currentGroup[key];
+                        var lastTrain = lastStationState[key];
+                        
+                        var currentTtnt = parseInt(currentTrain.ttnt);
+                        var currentSta = currentTrain.station.toUpperCase(); // 下一站
+                        var dir = currentTrain.direction;
+                        var prevSta = getPreviousStation(currentSta, dir); // 出發站
 
-                            if (matchedTrack && matchedTrack.geometry && matchedTrack.geometry.coordinates) {
-                                // 根據 ttnt 計算進度 (1分鐘代表快到 to 車站，給予高 ratio)
-                                var ratio = 0.5;
-                                if (ttnt === 1) ratio = 0.85; 
-                                if (ttnt >= 3) ratio = 0.15;  
-                                
-                                finalLatlng = interpolateAlongLineString(matchedTrack.geometry.coordinates, ratio);
+                        var trainId = `${dir}_${prevSta}_${currentSta}`;
+
+                        if (lastTrain) {
+                            var lastTtnt = parseInt(lastTrain.ttnt);
+
+                            // 【發車邏輯】：ttnt 從 0 變大，代表前一班車開走，下一班遞補；或者總站 ttnt 跳變增加
+                            if ((lastTtnt === 0 && currentTtnt > 0) || (isTerminus(currentSta, dir) && currentTtnt > lastTtnt)) {
+                                if (prevSta) {
+                                    console.log(`🚀 [發車事件] 區間: ${prevSta} ➔ ${currentSta} (${dir})`);
+                                    launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest);
+                                }
+                            }
+                        } else {
+                            // 【頭站預生成邏輯】：如果是首段軌道區間，且看見 ttnt == 1，立刻在始發月台放下待命列車
+                            if (isFirstTrackSegment(currentSta, dir) && currentTtnt === 1) {
+                                if (prevSta && !activeTrains[trainId]) {
+                                    console.log(`站 [預生成事件] 始發月台: ${prevSta} 待命`);
+                                    spawnStationTrain(prevSta, currentSta, dir, currentTrain.dest);
+                                }
                             }
                         }
 
-                        if (!finalLatlng && stationCoords[currentSta]) {
-                            finalLatlng = stationCoords[currentSta];
+                        // 【核心補償機制】：如果列車已經在跑，動態比對更新即時動態
+                        if (activeTrains[trainId]) {
+                            var runningTrain = activeTrains[trainId];
+                            // 當 API 指示下一站 ttnt == 1 時，觸發你設計的 90% 加速/校正路段
+                            if (currentTtnt === 1 && !runningTrain.inCompensationZone) {
+                                console.log(`🎯 [誤差補償] 列車 ${trainId} 進入最後 10% 緩衝修正區`);
+                                runningTrain.enterCompensation(0.90); 
+                            }
                         }
 
-                        if (!finalLatlng) return;
-
-                        var trainHtmlIcon = L.divIcon({
-                            className: 'train-icon',
-                            html: '', 
-                            iconSize: [9, 9],
-                            iconAnchor: [4.5, 4.5]
-                        });
-
-                        var markerId = `${train.line}_${currentSta}_${direction}`;
-                        trainMarkers[markerId] = L.marker(finalLatlng, { 
-                            icon: trainHtmlIcon,
-                            pane: 'trainPane'
-                        })
-                        .addTo(map)
-                        .bindPopup(`<b>目的地:</b> ${train.dest}<br><b>下一站:</b> ${currentSta}<br><b>時間:</b> ${ttnt} 分鐘後到站`);
+                        // 更新歷史快取
+                        lastStationState[key] = currentTrain;
                     });
 
-                    // 更新車站 Popup 的方向文字
+                    // 更新月台 Popup
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
@@ -206,40 +190,163 @@
                             popupContent += `<span style="color:#888;font-size:12px;">暫無實時列車即將進站</span>`;
                         } else {
                             schedules.forEach(t => {
-                                // 正確文字：UP 往荃灣，DOWN 往中環
                                 var dirText = t.direction === "UP" ? "往荃灣" : "往中環";
                                 popupContent += `<div style="font-size:12px;margin:3px 0;">• <b>${dirText}</b>: <span style="color:#E2231A;font-weight:bold;">${t.ttnt}</span> 分鐘後</div>`;
                             });
                         }
                         marker.setPopupContent(popupContent);
                     });
-
                 });
         }
 
-        // ==================== 【精準港鐵官方方向邏輯校正】 ====================
-        // 索引順序：中環 (0) -> 荃灣 (15)
+
+        // 3. 虛擬列車控制實體類別 (物件導向管理，完美支持自驅動與誤差補償)
+        class VirtualTrain {
+            constructor(fromSta, toSta, direction, dest, isPreSpawn = false) {
+                this.fromSta = fromSta;
+                this.toSta = toSta;
+                this.direction = direction;
+                this.dest = dest;
+                this.id = `${direction}_${fromSta}_${toSta}`;
+                
+                var geojsonDir = (direction === "UP") ? "Up" : "Down";
+                // 尋找對應軌道
+                this.trackFeature = trackFeatures.find(f => f.properties.direction === geojsonDir && f.properties.from === fromSta && f.properties.to === toSta);
+                if (!this.trackFeature) return;
+                this.coords = this.trackFeature.geometry.coordinates;
+
+                // 從加載的 TravelTimeConfig 尋找標準行車時間，無資料則預設 110 秒
+                var timeKey = `${fromSta}_${toSta}`;
+                this.totalDuration = (travelTimeConfig[timeKey] || 110) * 1000; 
+
+                this.startTime = Date.now();
+                this.ratio = 0.0;
+                this.inCompensationZone = false;
+                this.timer = null;
+
+                // 初始化 Leaflet Marker
+                var trainHtmlIcon = L.divIcon({ className: 'train-icon', html: '', iconSize: [9, 9], iconAnchor: [4.5, 4.5] });
+                
+                // 如果是預生成，停在線段起點(0%)；否則直接啟動
+                var startLatLng = isPreSpawn ? [this.coords[0][1], this.coords[0][0]] : [this.coords[0][1], this.coords[0][0]];
+                this.marker = L.marker(startLatLng, { icon: trainHtmlIcon, pane: 'trainPane' }).addTo(map)
+                    .bindPopup(`<b>目的地:</b> ${dest}<br><b>區間:</b> ${fromSta} ➔ ${toSta}<br><span style="color:green;font-weight:bold;">狀態: 自動巡航中</span>`);
+
+                if (!isPreSpawn) {
+                    this.startCruise();
+                }
+            }
+
+            // 進入常規巡航 (前 90% 路段)
+            startCruise() {
+                if (this.timer) clearInterval(this.timer);
+                this.startTime = Date.now();
+                
+                this.timer = setInterval(() => {
+                    var elapsed = Date.now() - this.startTime;
+                    // 在常規巡航階段，我們最高只讓它跑到 90% 的位置，留下 10% 做補償
+                    this.ratio = Math.min(0.90, elapsed / this.totalDuration);
+
+                    var latlng = interpolateAlongLineString(this.coords, this.ratio);
+                    if (latlng) this.marker.setLatLng(latlng);
+
+                    // 如果在未收到 API 訊號前就走到了 90%，暫時原地保持，等待輪詢進入補償
+                    if (this.ratio >= 0.90 && !this.inCompensationZone) {
+                        // 列車暫時以常速在 90% 蠕行或慢速滑行
+                    }
+                }, 1000);
+            }
+
+            // 【核心演算法】：進入最後 10% 誤差補償路段
+            enterCompensation(startRatio = 0.90) {
+                this.inCompensationZone = true;
+                if (this.timer) clearInterval(this.timer);
+
+                this.ratio = startRatio;
+                var compStartTime = Date.now();
+                // 留給最後 10% 路段的強制作業時間（例如快速衝刺進站花費 10 秒）
+                var compDuration = 10000; 
+
+                this.timer = setInterval(() => {
+                    var elapsed = Date.now() - compStartTime;
+                    var compProgress = elapsed / compDuration; // 0.0 ~ 1.0
+
+                    // 將進度線性對接映射到軌道剩餘的 90% -> 100%
+                    this.ratio = startRatio + (1.0 - startRatio) * compProgress;
+
+                    if (this.ratio >= 1.0) {
+                        clearInterval(this.timer);
+                        this.marker.setLatLng([this.coords[this.coords.length-1][1], this.coords[this.coords.length-1][0]]);
+                        this.arrive();
+                    } else {
+                        var latlng = interpolateAlongLineString(this.coords, this.ratio);
+                        if (latlng) this.marker.setLatLng(latlng);
+                    }
+                }, 200); // 提高刷新頻率至 200ms，進站減速更平滑
+            }
+
+            // 抵達車站月台
+            arrive() {
+                this.marker.setPopupContent(`<b>目的地:</b> ${this.dest}<br><b>已抵達:</b> ${this.toSta}<br><span style="color:red;font-weight:bold;">狀態: 列車進站中</span>`);
+                
+                // 如果到總站，維持 30 秒清客後自動淡出銷毀
+                if (isTerminus(this.toSta, this.direction)) {
+                    setTimeout(() => {
+                        map.removeLayer(this.marker);
+                        delete activeTrains[this.id];
+                    }, 30000);
+                } else {
+                    // 中途站抵達後直接銷毀，將接力棒交給下一段發車事件
+                    map.removeLayer(this.marker);
+                    delete activeTrains[this.id];
+                }
+            }
+        }
+
+        // 4. 控制外掛函式
+        function launchVirtualTrain(fromSta, toSta, dir, dest) {
+            var trainId = `${dir}_${fromSta}_${toSta}`;
+            // 如果原本月台有預生成的待命車，直接激活它前進
+            if (activeTrains[trainId]) {
+                if (!activeTrains[trainId].inCompensationZone && activeTrains[trainId].ratio === 0) {
+                    activeTrains[trainId].startCruise();
+                    return;
+                }
+            }
+            // 否則全新生成一輛車開始跑區間
+            activeTrains[trainId] = new VirtualTrain(fromSta, toSta, dir, dest, false);
+        }
+
+        function spawnStationTrain(fromSta, toSta, dir, dest) {
+            var trainId = `${dir}_${fromSta}_${toSta}`;
+            if (!activeTrains[trainId]) {
+                activeTrains[trainId] = new VirtualTrain(fromSta, toSta, dir, dest, true);
+            }
+        }
+
+        // 5. 基礎工具邏輯（港鐵官方定義：離開核心中環為上行 UP）
         const TWL_ORDER = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"];
         
         function getPreviousStation(nextSta, direction) {
             var index = TWL_ORDER.indexOf(nextSta);
             if (index === -1) return null;
-            
-            // 情況 A：列車是 UP（上行：離開核心，往荃灣方向，向 index 15 移動）
-            // 既然它的「下一站」是 nextSta，那它的「上一站（出發站）」一定是 index - 1
-            // 例子：下一站是 SSP (7)，上一站就是 PRE (6)。區間為 PRE ➔ SSP（你的 Up 軌道）。
-            if (direction === 'UP') {
+            if (direction === 'UP') { // 往荃灣方向 (Index 增加)，上一站是 index - 1
                 if (index > 0) return TWL_ORDER[index - 1];
             }
-            
-            // 情況 B：列車是 DOWN（下行：向核心，往中環方向，向 index 0 移動）
-            // 既然它的「下一站」是 nextSta，那它的「上一站（出發站）」一定是 index + 1
-            // 例子：下一站是 SSP (7)，上一站就是 CSW (8)。區間為 CSW ➔ SSP（你的 Down 軌道）。
-            if (direction === 'DOWN') {
+            if (direction === 'DOWN') { // 往中環方向 (Index 減少)，上一站是 index + 1
                 if (index < TWL_ORDER.length - 1) return TWL_ORDER[index + 1];
             }
-            
             return null;
+        }
+
+        function isFirstTrackSegment(nextSta, dir) {
+            if (dir === "UP" && nextSta === "ADM") return true; // 中環 ➔ 金鐘
+            if (dir === "DOWN" && nextSta === "TWH") return true; // 荃灣 ➔ 大窩口
+            return false;
+        }
+
+        function isTerminus(sta, dir) {
+            return (dir === "UP" && sta === "TSW") || (dir === "DOWN" && sta === "CEN");
         }
 
         function interpolateAlongLineString(coords, ratio) {
