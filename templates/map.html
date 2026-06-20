@@ -46,13 +46,15 @@
         var stationCoords = {}; 
         var stationLayers = {}; 
         var trainMarkers = {};
+        var trackFeatures = []; // 用來儲存軌道線段，供列車定位使用
 
-        // 3. 載入軌道線
+        // 3. 載入軌道線並快取線段
         fetch('/路線軌道檔/Track.TsuenWanLine.geojson')
             .then(res => res.json())
             .then(geojsonData => {
+                trackFeatures = geojsonData.features; // 快取所有區間線段
                 L.geoJSON(geojsonData, { 
-                    style: { color: '#E2231A', weight: 5, opacity: 0.9 },
+                    style: { color: '#E2231A', weight: 4, opacity: 0.8 },
                     pane: 'trackPane'
                 }).addTo(map);
             });
@@ -105,7 +107,7 @@
                 setInterval(updateTrainPositions, 10000);
             }).catch(err => console.error("車站載入錯誤:", err));
 
-        // 5. 實時列車位置動態算法
+        // 5. 實時列車位置與去重算法
         function updateTrainPositions() {
             fetch('/api/live')
                 .then(res => res.json())
@@ -144,25 +146,38 @@
                         }
                         stationSchedules[currentSta].push(train);
 
-                        if (!stationCoords[currentSta]) return; 
+                        var finalLatlng = null;
                         
-                        var targetLatlng = stationCoords[currentSta];
-                        var finalLatlng = targetLatlng;
-                        
-                        // 【核心修正】呼叫修正後的方向演算法
+                        // 判斷對應你軌道檔的 Direction 字串 ("Up" 或 "Down")
+                        // 港鐵 API DOWN(往荃灣) = 你的 Up; API UP(往中環) = 你的 Down
+                        var geojsonDir = (direction === "DOWN") ? "Up" : "Down";
                         var prevSta = getPreviousStation(currentSta, direction);
-                        if (prevSta && stationCoords[prevSta]) {
-                            var prevLatlng = stationCoords[prevSta];
-                            
-                            // 根據 ttnt 分鐘數計算內插比例
-                            var ratio = 0.5; 
-                            if (ttnt === 1) ratio = 0.80; // 快到站了，逼近下一站
-                            if (ttnt >= 3) ratio = 0.20;  // 剛開出不久，靠近上一站
-                            
-                            var lat = prevLatlng[0] + (targetLatlng[0] - prevLatlng[0]) * ratio;
-                            var lng = prevLatlng[1] + (targetLatlng[1] - prevLatlng[1]) * ratio;
-                            finalLatlng = [lat, lng];
+
+                        if (prevSta) {
+                            // 【核心亮點】：從快取的軌道資料中，精準找出這一條區間線段
+                            var matchedTrack = trackFeatures.find(f => {
+                                var p = f.properties;
+                                return p.direction === geojsonDir && 
+                                       p.from === prevSta && 
+                                       p.to === currentSta;
+                            });
+
+                            if (matchedTrack && matchedTrack.geometry && matchedTrack.geometry.coordinates) {
+                                // 根據 ttnt 計算進度比例 (ratio)
+                                var ratio = 0.5;
+                                if (ttnt === 1) ratio = 0.85; // 快到了，走完 85%
+                                if (ttnt >= 3) ratio = 0.15;  // 剛出發，走了 15%
+                                
+                                finalLatlng = interpolateAlongLineString(matchedTrack.geometry.coordinates, ratio);
+                            }
                         }
+
+                        // 保底機制：如果找不到軌道線段，才降級降落在車站點中央
+                        if (!finalLatlng && stationCoords[currentSta]) {
+                            finalLatlng = stationCoords[currentSta];
+                        }
+
+                        if (!finalLatlng) return;
 
                         var trainHtmlIcon = L.divIcon({
                             className: 'train-icon',
@@ -202,25 +217,43 @@
                 });
         }
 
-        // ==================== 【精準校正：港鐵官方 TWL 上下行演算法】 ====================
-        // 陣列順序：中環 (0) -> 荃灣 (15)
+        // 獲取港鐵官方定義的上一站
         const TWL_ORDER = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"];
-        
         function getPreviousStation(currentSta, direction) {
             var index = TWL_ORDER.indexOf(currentSta);
             if (index === -1) return null;
-            
-            // UP 是往中環方向（向 index 0 移動），所以它的「上一站」應該是 index + 1
-            if (direction === 'UP') {
+            if (direction === 'UP') { // 往中環，上一站是 index + 1
                 if (index < TWL_ORDER.length - 1) return TWL_ORDER[index + 1];
             }
-            
-            // DOWN 是往荃灣方向（向 index 15 移動），所以它的「上一站」應該是 index - 1
-            if (direction === 'DOWN') {
+            if (direction === 'DOWN') { // 往荃灣，上一站是 index - 1
                 if (index > 0) return TWL_ORDER[index - 1];
             }
-            
             return null;
+        }
+
+        // 【新增工具函式】：沿着 LineString 坐標數組按比例內插出精準點
+        function interpolateAlongLineString(coords, ratio) {
+            if (!coords || coords.length === 0) return null;
+            if (coords.length === 1) return [coords[0][1], coords[0][0]];
+            
+            // 1. 計算總長度百分比對應的目標節點位置
+            var targetIndex = Math.floor((coords.length - 1) * ratio);
+            var nextIndex = targetIndex + 1;
+            if (nextIndex >= coords.length) {
+                return [coords[coords.length - 1][1], coords[coords.length - 1][0]];
+            }
+            
+            // 2. 在該線段區間內進行微內插
+            var p1 = coords[targetIndex];
+            var p2 = coords[nextIndex];
+            
+            // 算出在該小段內的分段比率
+            var segmentRatio = ((coords.length - 1) * ratio) - targetIndex;
+            
+            var lng = p1[0] + (p2[0] - p1[0]) * segmentRatio;
+            var lat = p1[1] + (p2[1] - p1[1]) * segmentRatio;
+            
+            return [lat, lng]; // Leaflet 需要 [lat, lng]
         }
     </script>
 </body>
