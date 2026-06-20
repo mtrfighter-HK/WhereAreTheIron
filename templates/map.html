@@ -65,14 +65,12 @@
                     filter: function(feature) {
                         var props = feature.properties;
                         var code = props.StationCode || props.station_code || "";
-                        // 【功能 1】：完美過濾「NIL」未啟用車站，不顯示在地圖上
                         return code && code !== "NIL";
                     },
                     pointToLayer: function (feature, latlng) {
                         var props = feature.properties;
                         var staCode = (props.StationCode || props.station_code).toUpperCase();
 
-                        // 自動記錄經緯度對應
                         stationCoords[staCode] = [latlng.lat, latlng.lng];
                         
                         var outerMarker = L.circleMarker(latlng, {
@@ -121,9 +119,7 @@
                     var uniqueTrains = new Map();
                     
                     trainData.forEach(train => {
-                        // 確保只抓荃灣綫
                         if (train.line !== "TWL") return;
-                        // 以車站+方向建立唯一 Key 進行去重
                         var uniqueKey = `${train.line}_${train.station.toUpperCase()}_${train.direction}`;
                         
                         if (!uniqueTrains.has(uniqueKey)) {
@@ -153,19 +149,21 @@
                         var targetLatlng = stationCoords[currentSta];
                         var finalLatlng = targetLatlng;
                         
+                        // 【核心修正】呼叫修正後的方向演算法
                         var prevSta = getPreviousStation(currentSta, direction);
                         if (prevSta && stationCoords[prevSta]) {
                             var prevLatlng = stationCoords[prevSta];
+                            
+                            // 根據 ttnt 分鐘數計算內插比例
                             var ratio = 0.5; 
-                            if (ttnt === 1) ratio = 0.85;
-                            if (ttnt >= 3) ratio = 0.15;
+                            if (ttnt === 1) ratio = 0.80; // 快到站了，逼近下一站
+                            if (ttnt >= 3) ratio = 0.20;  // 剛開出不久，靠近上一站
                             
                             var lat = prevLatlng[0] + (targetLatlng[0] - prevLatlng[0]) * ratio;
                             var lng = prevLatlng[1] + (targetLatlng[1] - prevLatlng[1]) * ratio;
                             finalLatlng = [lat, lng];
                         }
 
-                        // 渲染白圈紅芯小原點（大小為車站點的 75% 左右）
                         var trainHtmlIcon = L.divIcon({
                             className: 'train-icon',
                             html: '', 
@@ -182,7 +180,7 @@
                         .bindPopup(`<b>目的地:</b> ${train.dest}<br><b>下一站:</b> ${currentSta}<br><b>時間:</b> ${ttnt} 分鐘後到站`);
                     });
 
-                    // 更新車站點擊的 Popup 資訊
+                    // 更新車站 Popup
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
@@ -194,7 +192,7 @@
                             popupContent += `<span style="color:#888;font-size:12px;">暫無實時列車即將進站</span>`;
                         } else {
                             schedules.forEach(t => {
-                                var dirText = t.direction === "UP" ? "往荃灣" : "往中環";
+                                var dirText = t.direction === "UP" ? "往中環" : "往荃灣";
                                 popupContent += `<div style="font-size:12px;margin:3px 0;">• <b>${dirText}</b>: <span style="color:#E2231A;font-weight:bold;">${t.ttnt}</span> 分鐘後</div>`;
                             });
                         }
@@ -204,12 +202,24 @@
                 });
         }
 
+        // ==================== 【精準校正：港鐵官方 TWL 上下行演算法】 ====================
+        // 陣列順序：中環 (0) -> 荃灣 (15)
         const TWL_ORDER = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"];
+        
         function getPreviousStation(currentSta, direction) {
             var index = TWL_ORDER.indexOf(currentSta);
             if (index === -1) return null;
-            if (direction === 'UP' && index > 0) return TWL_ORDER[index - 1];
-            if (direction === 'DOWN' && index < TWL_ORDER.length - 1) return TWL_ORDER[index + 1];
+            
+            // UP 是往中環方向（向 index 0 移動），所以它的「上一站」應該是 index + 1
+            if (direction === 'UP') {
+                if (index < TWL_ORDER.length - 1) return TWL_ORDER[index + 1];
+            }
+            
+            // DOWN 是往荃灣方向（向 index 15 移動），所以它的「上一站」應該是 index - 1
+            if (direction === 'DOWN') {
+                if (index > 0) return TWL_ORDER[index - 1];
+            }
+            
             return null;
         }
     </script>
