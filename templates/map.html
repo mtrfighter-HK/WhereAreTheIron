@@ -9,7 +9,6 @@
         body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: Arial, sans-serif; }
         #map { height: 100%; width: 100%; background: #ffffff; }
         
-        /* 右上角前往後台按鈕 */
         .nav-btn {
             position: absolute; top: 15px; right: 15px; z-index: 1000;
             background: white; border: 2px solid #ccc; padding: 10px 15px;
@@ -18,20 +17,17 @@
         }
         .nav-btn:hover { background: #eee; }
 
-        /* 車站中文標籤 */
         .station-label {
             background: none !important; border: none !important; box-shadow: none !important;
             color: #111111; font-weight: bold; text-shadow: 1px 1px 2px #ffffff;
             font-size: 12px;
         }
         
-        /* 消除 Leaflet Tooltip 預設的白色小箭頭 */
         .leaflet-tooltip-left::before, .leaflet-tooltip-right::before,
         .leaflet-tooltip-top::before, .leaflet-tooltip-bottom::before {
             display: none !important;
         }
 
-        /* 列車圖標 */
         .train-icon {
             background-color: #ffffff;
             border: 2px solid #E2231A; 
@@ -53,7 +49,6 @@
             attribution: '&copy; OpenStreetMap &copy; CARTO'
         }).addTo(map);
 
-        // 強制圖層次序
         map.createPane('trackPane').style.zIndex = 450;   
         map.createPane('stationPane').style.zIndex = 500; 
         map.createPane('trainPane').style.zIndex = 550;   
@@ -81,26 +76,25 @@
                         var props = feature.properties;
                         var staCode = props.StationCode || props.station_code || props.code;
                         
+                        // 這裡稍微篩選一下，只記錄荃灣綫會用到的車站座標，避免地圖載入其他綫的無用 Popup
                         if (staCode && staCode !== "NIL") {
                             stationCoords[staCode.toUpperCase()] = [latlng.lat, latlng.lng];
                         }
                         
-                        // 【修正 1】將實際觸發 Popup 嘅 Layer 設為最上層、面積較大嘅外黑圈
                         var outerMarker = L.circleMarker(latlng, {
                             radius: 6, color: '#000000', fillColor: '#ffffff', fillOpacity: 1, weight: 2.5,
                             pane: 'stationPane'
                         }).addTo(map);
 
-                        // 畫內白圈 (純視覺裝飾)
                         L.circleMarker(latlng, {
                             radius: 2, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, weight: 1,
                             pane: 'stationPane'
                         }).addTo(map);
 
                         if (staCode) {
-                            stationLayers[staCode.toUpperCase()] = outerMarker; // 記錄外圈，用來動態塞資料
+                            stationLayers[staCode.toUpperCase()] = outerMarker; 
                         }
-                        return outerMarker; // 回傳外圈，讓 onEachFeature 將 Tooltip/Popup 綁定喺佢身上
+                        return outerMarker; 
                     },
                     onEachFeature: function (feature, layer) {
                         var props = feature.properties;
@@ -114,7 +108,7 @@
                             permanent: true, direction: 'right', className: 'station-label', offset: [10, 0] 
                         });
 
-                        layer.bindPopup(`<b>${staName}</b><br>正在獲取實時班次...`);
+                        layer.bindPopup(`<b>${staName}</b><br>暫無荃灣綫實時列車進站`);
                     }
                 }).addTo(map);
                 
@@ -129,23 +123,21 @@
                 .then(response => {
                     if (response.status !== "success") return;
                     
-                    // 清除上一動態標記
                     Object.values(trainMarkers).forEach(marker => map.removeLayer(marker));
                     trainMarkers = {};
 
                     var trainData = response.data;
 
-                    // ------------------ 【修正 2：更科學的列車數據去重】 ------------------
-                    // 港鐵同一個方向可以有多部車。我們應該以「車站+方向」作為唯一 Key。
-                    // 這樣可以防止「因為整條線方向目的地相同，導致其他車站的列車被無辜濾走」的問題！
                     var uniqueTrains = new Map();
                     trainData.forEach(train => {
+                        // 【關鍵修正 1】如果不是荃灣綫 (TWL) 的數據，直接過濾跳過！不讓港島綫污染荃灣綫地圖
+                        if (train.line !== "TWL") return;
+
                         var uniqueKey = `${train.line}_${train.station.toUpperCase()}_${train.direction}`;
                         
                         if (!uniqueTrains.has(uniqueKey)) {
                             uniqueTrains.set(uniqueKey, train);
                         } else {
-                            // 同一車站同方向如果重複，取到站時間更近（ttnt更小）的
                             var existing = uniqueTrains.get(uniqueKey);
                             if (parseInt(train.ttnt) < parseInt(existing.ttnt)) {
                                 uniqueTrains.set(uniqueKey, train);
@@ -155,7 +147,7 @@
 
                     var stationSchedules = {};
 
-                    // 渲染列車
+                    // 渲染過濾後的純荃灣綫列車
                     uniqueTrains.forEach(train => {
                         var currentSta = train.station.toUpperCase();
                         var ttnt = parseInt(train.ttnt);
@@ -171,7 +163,6 @@
                         var targetLatlng = stationCoords[currentSta];
                         var finalLatlng = targetLatlng;
                         
-                        // 計算內插位置
                         var prevSta = getPreviousStation(currentSta, direction);
                         if (prevSta && stationCoords[prevSta]) {
                             var prevLatlng = stationCoords[prevSta];
@@ -200,18 +191,22 @@
                         .bindPopup(`<b>目的地:</b> ${train.dest}<br><b>下一站:</b> ${currentSta}<br><b>時間:</b> ${ttnt} 分鐘後到站`);
                     });
 
-                    // ------------------ 更新車站 Popup 內容 ------------------
+                    // 【關鍵修正 2】動態更新所有車站點的 Popup 內容
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
                         
-                        var popupContent = `<b>車站代碼: ${staCode}</b><br><hr style="border:0;border-top:1px solid #ccc;">`;
+                        // 先抓取原本的 Tooltip 名字（即車站中文名）
+                        var tooltip = marker.getTooltip();
+                        var staName = tooltip ? tooltip.getContent() : staCode;
+                        
+                        var popupContent = `<b>${staName} (${staCode})</b><br><hr style="border:0;border-top:1px solid #ccc;margin:5px 0;">`;
                         if (schedules.length === 0) {
-                            popupContent += `<span style="color:#888;">暫無實時列車即將進站</span>`;
+                            popupContent += `<span style="color:#888;font-size:12px;">暫無實時列車即將進站</span>`;
                         } else {
                             schedules.forEach(t => {
                                 var dirText = t.direction === "UP" ? "往荃灣" : "往中環";
-                                popupContent += `• <b>${dirText}</b> (${t.dest}): <span style="color:#E2231A;font-weight:bold;">${t.ttnt}</span> 分鐘後<br>`;
+                                popupContent += `<div style="font-size:12px;margin:3px 0;">• <b>${dirText}</b>: <span style="color:#E2231A;font-weight:bold;">${t.ttnt}</span> 分鐘後</div>`;
                             });
                         }
                         marker.setPopupContent(popupContent);
