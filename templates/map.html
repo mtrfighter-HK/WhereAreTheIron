@@ -2,7 +2,7 @@
 <html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
-    <title>MTR 實時列車地圖 - 終極訊號閉塞與誤差補償版</title>
+    <title>MTR 實時列車地圖 - 訊號閉塞修正版</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
@@ -22,20 +22,24 @@
         .leaflet-tooltip-left::before, .leaflet-tooltip-right::before,
         .leaflet-tooltip-top::before, .leaflet-tooltip-bottom::before { display: none !important; }
         
-        /* 核心樣式：常規巡航列車點（紅點） */
-        .train-icon {
-            background-color: #ffffff; border: 2px solid #E2231A; border-radius: 50%; box-shadow: 0 0 3px rgba(0,0,0,0.2);
-            transition: transform 0.2s linear;
+        /* 【修復】常規巡航列車點：移除 transform transition 避免干擾 Leaflet 縮放 */
+        .train-container {
+            width: 10px; height: 10px; display: flex; align-items: center; justify-content: center;
+        }
+        .train-dot {
+            width: 8px; height: 8px; background-color: #ffffff; border: 2px solid #E2231A; border-radius: 50%;
+            box-shadow: 0 0 3px rgba(0,0,0,0.3);
         }
         
-        /* 延誤時的閃爍黃光動畫（90% 處觸發） */
-        .train-icon-delayed {
-            background-color: #ffcc00 !important; border: 2px solid #cc9900 !important; border-radius: 50%; box-shadow: 0 0 8px #ffcc00;
-            animation: mtrTrainPulse 1s infinite alternate;
+        /* 【修復】延誤閃爍動畫：只針對內層 div 縮放，絕不干擾 Leaflet Marker 外層 */
+        .train-dot-delayed {
+            width: 8px; height: 8px; background-color: #ffcc00; border: 2px solid #cc9900; border-radius: 50%;
+            box-shadow: 0 0 8px #ffcc00;
+            animation: mtrTrainPulse 0.8s infinite alternate;
         }
         @keyframes mtrTrainPulse {
-            0% { opacity: 0.4; transform: scale(0.9); }
-            100% { opacity: 1; transform: scale(1.2); }
+            0% { transform: scale(0.8); opacity: 0.5; }
+            100% { transform: scale(1.3); opacity: 1; }
         }
     </style>
 </head>
@@ -56,35 +60,29 @@
         map.createPane('stationPane').style.zIndex = 500; 
         map.createPane('trainPane').style.zIndex = 550;   
 
-        // 全局數據快取
         var stationCoords = {}; 
         var stationLayers = {}; 
         var trackFeatures = []; 
         var travelTimeConfig = {}; 
-        
-        // 核心狀態監聽字典
         var lastStationState = {}; 
-        var activeTrains = {}; // 目前正在軌道上跑的虛擬列車實體字典
+        var activeTrains = {}; 
 
-        // 1. 初始化資料非同步加載
+        // 1. 初始化資料加載
         Promise.all([
             fetch('/路線軌道檔/Track.TsuenWanLine.geojson').then(res => res.json()),
             fetch('/系統基本檔/StationLocation_2026_06.geojson').then(res => res.json()),
             fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94%2FTravelTimeConfig.json').then(res => res.json()).catch(() => null)
         ]).then(([trackData, stationData, timeConfig]) => {
             
-            // 快取軌道
             trackFeatures = trackData.features;
             L.geoJSON(trackData, { style: { color: '#E2231A', weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
 
-            // 快取時間設定 (建立起止站查詢 Key)
             if (timeConfig && timeConfig.travel_times) {
                 timeConfig.travel_times.forEach(t => {
                     travelTimeConfig[`${t.from}_${t.to}`] = t.run_time_sec || t.duration_sec || 120; 
                 });
             }
 
-            // 渲染車站
             L.geoJSON(stationData, {
                 filter: f => (f.properties.StationCode || f.properties.station_code || "") !== "NIL",
                 pointToLayer: function (feature, latlng) {
@@ -105,14 +103,13 @@
                 }
             }).addTo(map);
 
-            // 啟動主輪詢：每 10 秒抓一次 API 進行事件與發車分析
             processTrainSchedules();
             setInterval(processTrainSchedules, 10000);
 
         }).catch(err => console.error("系統初始化失敗:", err));
 
 
-        // 2. 主事件分析監聽器（快速熱身穩定版）
+        // 2. 主事件分析監聽器
         function processTrainSchedules() {
             fetch('/api/live')
                 .then(res => res.json())
@@ -133,7 +130,7 @@
                         stationSchedules[currentSta].push(train);
 
                         if (!currentGroup[key] || parseInt(train.ttnt) < parseInt(currentGroup[key].ttnt)) {
-                            currentGroup[key] = train; // 保留最快到站的那班車
+                            currentGroup[key] = train; 
                         }
                     });
 
@@ -142,52 +139,47 @@
                         var lastTrain = lastStationState[key];
                         
                         var currentTtnt = parseInt(currentTrain.ttnt);
-                        var currentSta = currentTrain.station.toUpperCase(); // 下一站
+                        var currentSta = currentTrain.station.toUpperCase(); 
                         var dir = currentTrain.direction;
-                        var prevSta = getPreviousStation(currentSta, dir); // 出發站
+                        var prevSta = getPreviousStation(currentSta, dir); 
 
                         var trainId = `${dir}_${prevSta}_${currentSta}`;
 
                         if (lastTrain) {
                             var lastTtnt = parseInt(lastTrain.ttnt);
 
-                            // 【核心發車訊號】：ttnt 從 0 變大，代表上一班車已開走
+                            // 【發車訊號】
                             if ((lastTtnt === 0 && currentTtnt > 0) || (isTerminus(currentSta, dir) && currentTtnt > lastTtnt)) {
                                 if (prevSta) {
-                                    // 閉塞解鎖：發車時先清除前一區間停在 100% 的舊列車點
                                     clearPreviousBlockTrain(prevSta, dir);
-                                    
-                                    console.log(`🚀 [訊號授權：發車] 區間: ${prevSta} ➔ ${currentSta} (${dir})`);
+                                    console.log(`🚀 [發車] 區間: ${prevSta} ➔ ${currentSta}`);
                                     launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest);
                                 }
                             }
                         } else {
-                            // 【熱身與始發站生成機制】
+                            // 【修復 Bug 1】熱身機制收窄判定條件，防止鬼車生成
                             if (prevSta && !activeTrains[trainId]) {
-                                if (currentTtnt >= 2) {
-                                    console.log(`⏱️ [熱身同步] 直接注入行駛區間: ${prevSta} ➔ ${currentSta}`);
+                                // 只有當車次真的剛開出 (ttnt為2或3) 才會注入。如果 ttnt >= 4，代表車子還在更後面的車站，不在此區間生成！
+                                if (currentTtnt === 2 || currentTtnt === 3) {
+                                    console.log(`⏱️ [熱身同步] 注入行駛區間: ${prevSta} ➔ ${currentSta} (ttnt: ${currentTtnt})`);
                                     launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest);
                                 } else if (isFirstTrackSegment(currentSta, dir) && currentTtnt === 1) {
-                                    console.log(`🚉 [預生成事件] 始發月台: ${prevSta} 待命`);
+                                    console.log(`静态月台預生成: ${prevSta}`);
                                     spawnStationTrain(prevSta, currentSta, dir, currentTrain.dest);
                                 }
                             }
                         }
 
-                        // 【訊號動態追蹤與 90% 誤差補償閘口判定】
+                        // 【誤差補償與延誤監聽】
                         if (activeTrains[trainId]) {
                             var runningTrain = activeTrains[trainId];
                             
                             if (currentTtnt === 1 || currentTtnt === 0) {
-                                // 正常進站：API 說快到了／已到，且車輛未進入補償區，或被卡在 90% 的車，解鎖衝刺進站
                                 if (!runningTrain.inCompensationZone || runningTrain.isDelayed) {
-                                    console.log(`🎯 [誤差補償] 列車 ${trainId} 解鎖／進入最後 10% 調整路段`);
                                     runningTrain.enterCompensation(runningTrain.ratio); 
                                 }
                             } else if (currentTtnt >= 2 && runningTrain.ratio >= 0.90 && !runningTrain.inCompensationZone) {
-                                // 隧道 Delay 判定：車子依照 TravelTimeConfig 已經走到 90%，但 API 還顯示 >= 2 分鐘，觸發閃黃光原地等待
                                 if (!runningTrain.isDelayed) {
-                                    console.log(`⚠️ [隧道延誤] 列車 ${trainId} 於 90% 處紅燈等待`);
                                     runningTrain.triggerDelay();
                                 }
                             }
@@ -196,7 +188,7 @@
                         lastStationState[key] = currentTrain;
                     });
 
-                    // 更新月台 Popup
+                    // 更新月台氣泡
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
@@ -217,13 +209,11 @@
                 });
         }
 
-        // 清除上一段閉塞區間停在 100% 月台邊的舊車
         function clearPreviousBlockTrain(currentLaunchStation, direction) {
-            var prevPrevSta = getPreviousStation(currentLaunchStation, direction === "UP" ? "DOWN" : "UP"); // 逆向尋找上一站
+            var prevPrevSta = getPreviousStation(currentLaunchStation, direction === "UP" ? "DOWN" : "UP"); 
             if (!prevPrevSta) return;
             var oldTrainId = `${direction}_${prevPrevSta}_${currentLaunchStation}`;
             if (activeTrains[oldTrainId]) {
-                console.log(`🧹 [閉塞釋放] 清除舊區間月台點: ${oldTrainId}`);
                 activeTrains[oldTrainId].destroy();
             }
         }
@@ -244,7 +234,6 @@
                 if (!this.trackFeature) return;
                 this.coords = this.trackFeature.geometry.coordinates;
 
-                // 讀取你 GitHub 的 TravelTimeConfig (標準 0% ➔ 100% 行車秒數)，保底預設 110 秒
                 var timeKey = `${fromSta}_${toSta}`;
                 this.totalDuration = (travelTimeConfig[timeKey] || 110) * 1000; 
 
@@ -253,8 +242,14 @@
                 this.inCompensationZone = false;
                 this.timer = null;
 
-                // 初始化 Leaflet Marker
-                this.iconElement = L.divIcon({ className: 'train-icon', html: '', iconSize: [9, 9], iconAnchor: [4.5, 4.5] });
+                // 【修復 Bug 2】使用 HTML 包裹內層 div 圓點，確保縮放時定位完全由 Leaflet 接管，絕不飄移
+                this.iconElement = L.divIcon({ 
+                    className: 'train-container', 
+                    html: '<div class="train-dot" id="dot_' + this.id + '"></div>', 
+                    iconSize: [10, 10], 
+                    iconAnchor: [5, 5] 
+                });
+                
                 this.marker = L.marker([this.coords[0][1], this.coords[0][0]], { icon: this.iconElement, pane: 'trainPane' }).addTo(map);
                 this.updatePopupText("自動巡航中");
 
@@ -265,13 +260,11 @@
                 }
             }
 
-            // 更新氣泡彈窗文字與延誤標籤
             updatePopupText(statusHtml) {
                 var delayNotice = this.isDelayed ? `<br><span style="color:orange;font-weight:bold;">⚠️ 列車稍為延遲</span>` : '';
                 this.marker.bindPopup(`<b>目的地:</b> ${this.dest}<br><b>區間:</b> ${this.fromSta} ➔ ${this.toSta}<br><b>狀態:</b> ${statusHtml}${delayNotice}`);
             }
 
-            // 0% -> 90% 依照 TravelTimeConfig 均速朝下一站行駛
             startCruise() {
                 if (this.timer) clearInterval(this.timer);
                 this.isDelayed = false;
@@ -279,78 +272,69 @@
                 
                 this.timer = setInterval(() => {
                     var elapsed = Date.now() - this.startTime;
-                    
-                    // 根據完整 TravelTimeConfig (100%) 計算當前巡航比例
                     var currentProgress = elapsed / this.totalDuration;
-                    
-                    // 在未收到 ttnt=1 進站訊號前，最高只能自己挪動到 90% 位置
                     this.ratio = Math.min(0.90, currentProgress);
 
                     var latlng = interpolateAlongLineString(this.coords, this.ratio);
                     if (latlng) this.marker.setLatLng(latlng);
 
                     if (this.ratio >= 0.90 && !this.inCompensationZone && !this.isDelayed) {
-                        this.updatePopupText("接近下一個閉塞區間，微調行駛速度...");
+                        this.updatePopupText("接近車站，調速等待中");
                     }
                 }, 1000);
             }
 
-            // ⚠️ 觸發隧道 Delay 狀態（原地停低，閃爍黃光）
+            // ⚠️ 修正延誤觸發：只改變內層 HTML 樣式，地圖縮放時絕不留喺原位
             triggerDelay() {
                 this.isDelayed = true;
-                if (this.timer) clearInterval(this.timer); // 凍結物理時間前進
+                if (this.timer) clearInterval(this.timer); 
                 
-                // 動態加入 CSS class 觸發閃爍與變黃動畫
-                if (this.marker._icon) {
-                    L.DomUtil.addClass(this.marker._icon, 'train-icon-delayed');
+                var innerDot = document.getElementById('dot_' + this.id);
+                if (innerDot) {
+                    innerDot.className = 'train-dot-delayed'; // 激活會縮放閃爍的內層黃點
                 }
                 this.updatePopupText("<span style='color:orange;font-weight:bold;'>信號燈紅燈等待中</span>");
             }
 
-            // 🎯 進入最後 10% 調整速度路段：由目前位置（如 90%）出發，在 ttnt=0 瞬間精準進站
             enterCompensation(startRatio = 0.90) {
                 this.inCompensationZone = true;
                 this.isDelayed = false;
                 if (this.timer) clearInterval(this.timer);
 
-                // 解除閃黃光樣式，恢復常規紅點
-                if (this.marker._icon) {
-                    L.DomUtil.removeClass(this.marker._icon, 'train-icon-delayed');
+                // 恢復為普通紅點
+                var innerDot = document.getElementById('dot_' + this.id);
+                if (innerDot) {
+                    innerDot.className = 'train-dot';
                 }
 
                 this.ratio = startRatio;
                 var compStartTime = Date.now();
-                var compDuration = 10000; // 給予最後 10% 路段 10 秒時間平滑滑進月台
+                var compDuration = 10000; 
 
                 this.updatePopupText("正在減速進站...");
 
                 this.timer = setInterval(() => {
                     var elapsed = Date.now() - compStartTime;
-                    var compProgress = elapsed / compDuration; // 0.0 ~ 1.0
+                    var compProgress = elapsed / compDuration; 
 
-                    // 線性對接映射到軌道剩餘的 90% -> 100% 物理位置
                     this.ratio = startRatio + (1.0 - startRatio) * compProgress;
 
                     if (this.ratio >= 1.0) {
                         clearInterval(this.timer);
                         this.marker.setLatLng([this.coords[this.coords.length-1][1], this.coords[this.coords.length-1][0]]);
-                        this.arrive(); // ttnt = 0 完美觸發抵達 100%
+                        this.arrive(); 
                     } else {
                         var latlng = interpolateAlongLineString(this.coords, this.ratio);
                         if (latlng) this.marker.setLatLng(latlng);
                     }
-                }, 200); // 提高頻率至 200ms 讓進站動畫極流暢
+                }, 200); 
             }
 
-            // 抵達 100% 月台位置
             arrive() {
                 this.updatePopupText("<span style='color:#E2231A;font-weight:bold;'>列車已進站 / 正在上落客</span>");
-                
-                // 如果是終點總站，原地靜止待 30 秒模擬清客後淡出銷毀
                 if (isTerminus(this.toSta, this.direction)) {
                     setTimeout(() => { this.destroy(); }, 30000);
                 }
-                // 中途站抵達後保持原地靜止在 100% 位置，直到下一站開車時由 clearPreviousBlockTrain 釋放閉塞並清除
             }
 
             destroy() {
@@ -360,10 +344,9 @@
             }
         }
 
-        // 外掛控制組件
+        // 工具組件
         function launchVirtualTrain(fromSta, toSta, dir, dest) {
             var trainId = `${dir}_${fromSta}_${toSta}`;
-            // 如果原本月台有預生成的待命車，直接解鎖激活它前進
             if (activeTrains[trainId] && activeTrains[trainId].ratio === 0) {
                 activeTrains[trainId].startCruise();
                 return;
@@ -378,24 +361,23 @@
             }
         }
 
-        // 4. 基礎鐵路工具函數（港鐵官方定義：離開核心中環/金鐘為上行 UP）
         const TWL_ORDER = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"];
         
         function getPreviousStation(nextSta, direction) {
             var index = TWL_ORDER.indexOf(nextSta);
             if (index === -1) return null;
-            if (direction === 'UP') { // 往荃灣方向 (Index 增加)，上一站是 index - 1
+            if (direction === 'UP') { 
                 if (index > 0) return TWL_ORDER[index - 1];
             }
-            if (direction === 'DOWN') { // 往中環方向 (Index 減少)，上一站是 index + 1
+            if (direction === 'DOWN') { 
                 if (index < TWL_ORDER.length - 1) return TWL_ORDER[index + 1];
             }
             return null;
         }
 
         function isFirstTrackSegment(nextSta, dir) {
-            if (dir === "UP" && nextSta === "ADM") return true; // 中環 ➔ 金鐘
-            if (dir === "DOWN" && nextSta === "TWH") return true; // 荃灣 ➔ 大窩口
+            if (dir === "UP" && nextSta === "ADM") return true; 
+            if (dir === "DOWN" && nextSta === "TWH") return true; 
             return false;
         }
 
