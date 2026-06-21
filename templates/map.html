@@ -105,8 +105,7 @@
 
         }).catch(err => console.error("系統初始化失敗:", err));
 
-
-        // 2. 主事件分析核心
+        // 2. 主事件分析核心（快速熱身穩定版）
         function processTrainSchedules() {
             fetch('/api/live')
                 .then(res => res.json())
@@ -114,7 +113,6 @@
                     if (response.status !== "success") return;
                     var trainData = response.data;
 
-                    // 篩選並尋找每個車站方向的最優先列車（ttnt 最小）
                     var currentGroup = {};
                     var stationSchedules = {};
 
@@ -132,49 +130,50 @@
                         }
                     });
 
-                    // 遍歷當前 API 狀態，比對歷史狀態發送「發車」或「預生成」訊號
                     Object.keys(currentGroup).forEach(key => {
                         var currentTrain = currentGroup[key];
                         var lastTrain = lastStationState[key];
                         
                         var currentTtnt = parseInt(currentTrain.ttnt);
-                        var currentSta = currentTrain.station.toUpperCase(); // 下一站
+                        var currentSta = currentTrain.station.toUpperCase(); 
                         var dir = currentTrain.direction;
-                        var prevSta = getPreviousStation(currentSta, dir); // 出發站
+                        var prevSta = getPreviousStation(currentSta, dir); 
 
                         var trainId = `${dir}_${prevSta}_${currentSta}`;
 
                         if (lastTrain) {
                             var lastTtnt = parseInt(lastTrain.ttnt);
 
-                            // 【發車邏輯】：ttnt 從 0 變大，代表前一班車開走，下一班遞補；或者總站 ttnt 跳變增加
+                            // 【發車邏輯】
                             if ((lastTtnt === 0 && currentTtnt > 0) || (isTerminus(currentSta, dir) && currentTtnt > lastTtnt)) {
-                                if (prevSta) {
-                                    console.log(`🚀 [發車事件] 區間: ${prevSta} ➔ ${currentSta} (${dir})`);
+                                if (prevSta && !activeTrains[trainId]) {
+                                    console.log(`🚀 [發車事件] 區ain: ${prevSta} ➔ ${currentSta} (${dir})`);
                                     launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest);
                                 }
                             }
                         } else {
-                            // 【頭站預生成邏輯】：如果是首段軌道區間，且看見 ttnt == 1，立刻在始發月台放下待命列車
-                            if (isFirstTrackSegment(currentSta, dir) && currentTtnt === 1) {
-                                if (prevSta && !activeTrains[trainId]) {
+                            // 【快速熱身機制】
+                            // 第一次開地圖時，如果發現某區間有車且 ttnt >= 2，直接在常規巡航中段生成它，不用等下班車！
+                            if (prevSta && !activeTrains[trainId]) {
+                                if (currentTtnt >= 2) {
+                                    console.log(`⏱️ [熱身同步] 偵測到既有列車，直接注入區間: ${prevSta} ➔ ${currentSta}`);
+                                    launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest);
+                                } else if (isFirstTrackSegment(currentSta, dir) && currentTtnt === 1) {
                                     console.log(`站 [預生成事件] 始發月台: ${prevSta} 待命`);
                                     spawnStationTrain(prevSta, currentSta, dir, currentTrain.dest);
                                 }
                             }
                         }
 
-                        // 【核心補償機制】：如果列車已經在跑，動態比對更新即時動態
+                        // 【誤差補償】
                         if (activeTrains[trainId]) {
                             var runningTrain = activeTrains[trainId];
-                            // 當 API 指示下一站 ttnt == 1 時，觸發你設計的 90% 加速/校正路段
                             if (currentTtnt === 1 && !runningTrain.inCompensationZone) {
                                 console.log(`🎯 [誤差補償] 列車 ${trainId} 進入最後 10% 緩衝修正區`);
                                 runningTrain.enterCompensation(0.90); 
                             }
                         }
 
-                        // 更新歷史快取
                         lastStationState[key] = currentTrain;
                     });
 
