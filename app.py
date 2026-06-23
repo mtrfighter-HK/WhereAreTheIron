@@ -88,4 +88,150 @@ def background_collector():
                                         c.execute('''INSERT INTO mtr_ttnt 
                                             (timestamp, line, station, direction, dest, ttnt, is_delay, collected_at)
                                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                                            (now, line, sta,
+                                            (now, line, sta, direction, dest, ttnt_int, is_delay_val, now))
+                                        
+                                        key = f"{sta}_{direction}"
+                                        if key in last_api_state:
+                                            last_ttnt = last_api_state[key]
+                                            if last_ttnt == 0 and ttnt_int > 0:
+                                                c.execute('''INSERT INTO departure_events 
+                                                    (event_time, station, direction, dest)
+                                                    VALUES (?, ?, ?, ?)''',
+                                                    (now, sta, direction, dest))
+                                        last_api_state[key] = ttnt_int
+                except Exception as e:
+                    print(f"抓取車站 {sta} 失敗: {e}")
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"資料庫寫入錯誤: {e}")
+            
+        backup_day_counter += 1
+        if backup_day_counter >= 2880:
+            backup_day_counter = 0
+            try:
+                conn = get_db()
+                conn.execute("DELETE FROM mtr_ttnt WHERE timestamp < datetime('now', '-7 days')")
+                conn.execute("VACUUM")
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"定時清理失敗: {e}")
+
+        time.sleep(30)
+
+threading.Thread(target=background_collector, daemon=True).start()
+
+# ==========================================
+# 📬 路由 (徹底排除 SQL 500 崩潰點)
+# ==========================================
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse("map.html", {"request": request})
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    return templates.TemplateResponse("admin.html", {"request": request})
+
+@app.get("/api/live")
+async def get_live_trains():
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute('''
+            SELECT t.line, t.station, t.direction, t.dest, t.ttnt, t.is_delay 
+            FROM mtr_ttnt t
+            INNER JOIN (
+                SELECT station, direction, MAX(timestamp) as max_ts
+                FROM mtr_ttnt
+                WHERE timestamp >= datetime('now', '-3 minutes') AND line = 'TWL'
+                GROUP BY station, direction
+            ) tm ON t.station = tm.station AND t.direction = tm.direction AND t.timestamp = tm.max_ts
+        ''')
+        rows = c.fetchall()
+        conn.close()
+        
+        trains = []
+        for row in rows:
+            trains.append({
+                "line": row["line"],
+                "station": row["station"],
+                "direction": row["direction"],
+                "dest": row["dest"],
+                "ttnt": row["ttnt"],
+                "is_delay": row["is_delay"]
+            })
+        return {"status": "success", "data": trains}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "data": []}
+
+@app.get('/api/admin/departures')
+async def api_admin_departures(station: str = "ALL", period: str = "ALL", hour: str = "ALL"):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        query = "SELECT event_time, station, direction, dest FROM departure_events WHERE 1=1"
+        params = []
+        
+        if station and station != "ALL":
+            query += " AND station = ?"
+            params.append(station.upper())
+            
+        if period == "WEEKDAY":
+            query += " AND strftime('%w', event_time) BETWEEN '1' AND '5'"
+        elif period == "WEEKEND":
+            query += " AND (strftime('%w', event_time) = '0' OR strftime('%w', event_time) = '6')"
+            
+        # 🟢 修正防禦寫法：使用大寫的 '%H'，並加上 CAST 轉型確保絕對不會因為字串對齊出錯
+        if hour and hour != "ALL":
+            query += " AND CAST(strftime('%H', event_time) AS INTEGER) = ?"
+            params.append(int(hour))
+            
+        query += " ORDER BY event_time DESC LIMIT 100"
+        
+        cursor.execute(query, tuple(params))
+        rows = cursor.fetchall()
+        conn.close()
+        return {"status": "success", "data": [dict(row) for row in rows]}
+    except Exception as e:
+        # 🟢 如果發生錯誤，回傳 JSON 格式而不是直接噴出 500 錯誤，方便前端調試
+        return {"status": "error", "message": str(e), "data": []}
+
+@app.get('/api/admin/stats')
+async def api_admin_stats():
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM mtr_ttnt")
+        total_records = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM departure_events")
+        total_events = cursor.fetchone()[0]
+        conn.close()
+        return {"total_records": total_records, "total_departures": total_events}
+    except Exception:
+        return {"total_records": 0, "total_departures": 0}
+
+# GeoJSON 路由
+@app.get("/系統基本檔/StationLocation_2026_06.geojson")
+async def get_station_geojson():
+    file_path = os.path.join("系統基本檔", "StationLocation_2026_06.geojson")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return JSONResponse(json.load(f))
+    return JSONResponse({"error": "File not found"}, status_code=404)
+
+@app.get("/路線軌道檔/Track.TsuenWanLine.geojson")
+async def get_track_geojson():
+    file_path = os.path.join("路線軌道檔", "Track.TsuenWanLine.geojson")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return JSONResponse(json.load(f))
+    return JSONResponse({"error": "File not found"}, status_code=404)
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
