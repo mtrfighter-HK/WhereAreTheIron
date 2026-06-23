@@ -4,7 +4,7 @@ import requests
 import threading
 import time
 import json
-import traceback  # 🟢 引入偵錯工具
+import traceback
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
@@ -12,11 +12,11 @@ from fastapi.templating import Jinja2Templates
 
 app = FastAPI(title="MTR 實時地圖 - 荃灣綫 大數據持久化版")
 
-# 🟢 確保路徑正確，增加防禦性路徑偵測
+# 確保路徑正確
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 if not os.path.exists(TEMPLATE_DIR):
-    TEMPLATE_DIR = "templates" # 備用方案
+    TEMPLATE_DIR = "templates"
 
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
@@ -131,14 +131,14 @@ def background_collector():
 threading.Thread(target=background_collector, daemon=True).start()
 
 # ==========================================
-# 📬 路由 (帶有暴力排錯監控的盾牌)
+# 📬 路由 (🟢 已修復新版 FastAPI 傳參機制)
 # ==========================================
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     try:
-        # 🟢 如果這裡出錯，會直接在網頁打印出到底缺檔案還是語法錯
-        return templates.TemplateResponse("map.html", {"request": request})
+        # 🟢 顯式指定 request 與 name，完全避開 Jinja2 對稱不上的 Bug
+        return templates.TemplateResponse(request=request, name="map.html", context={})
     except Exception as e:
         error_msg = traceback.format_exc()
         return PlainTextResponse(f"❌ 主頁渲染崩潰！報錯詳細原因如下：\n\n{error_msg}", status_code=500)
@@ -146,7 +146,7 @@ async def home(request: Request):
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     try:
-        return templates.TemplateResponse("admin.html", {"request": request})
+        return templates.TemplateResponse(request=request, name="admin.html", context={})
     except Exception as e:
         error_msg = traceback.format_exc()
         return PlainTextResponse(f"❌ 後台頁面渲染崩潰！報錯詳細原因如下：\n\n{error_msg}", status_code=500)
