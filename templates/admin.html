@@ -6,9 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { font-family: Arial, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 1100px; margin: 0 auto; position: relative; }
+        .container { max-width: 1200px; margin: 0 auto; position: relative; }
         
-        /* 【統一視覺效果】與地圖頁完全一致的按鈕樣式 */
         .nav-btn {
             position: absolute; top: 0; right: 0; z-index: 1000;
             background: white; border: 2px solid #ccc; padding: 10px 15px;
@@ -19,27 +18,27 @@
 
         h1 { color: #E2231A; border-left: 5px solid #E2231A; padding-left: 10px; margin-bottom: 30px; }
         
-        .dashboard-grid { display: grid; grid-template-columns: 1s; gap: 20px; margin-bottom: 20px; }
-        @media (min-width: 768px) {
-            .dashboard-grid { grid-template-columns: 1fr 2fr; }
+        .dashboard-grid { display: grid; grid-template-columns: 1fr; gap: 20px; margin-bottom: 20px; }
+        @media (min-width: 850px) {
+            .dashboard-grid { grid-template-columns: 1.2fr 2fr; }
         }
 
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8 rgba(0,0,0,0.05); }
         .card h2 { margin-top: 0; font-size: 18px; color: #111; border-bottom: 1px solid #eee; padding-bottom: 10px; }
         
         .stat-number { font-size: 28px; font-weight: bold; color: #E2231A; margin: 10px 0; }
         .stat-desc { font-size: 12px; color: #666; }
 
-        /* 簡易列車位置看板樣式 */
         .live-board-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         .live-board-table th, .live-board-table td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
         .live-board-table th { background: #f8f9fa; font-size: 13px; color: #666; }
         .track-cell { background: #fff5f5; font-weight: bold; color: #e2231a; text-align: center; font-size: 14px; width: 40px; }
         .station-name { font-weight: bold; color: #333; font-size: 15px; }
 
-        /* 班次數據篩選表格 */
-        .filter-group { display: flex; gap: 10px; margin-bottom: 15px; }
-        select { padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 14px; }
+        /* 篩選器群組組合 */
+        .filter-group { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; background: #f9f9f9; padding: 10px; border-radius: 6px; }
+        select { padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 14px; background: white; min-width: 140px; }
+        
         .data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
         .data-table th, .data-table td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
         .data-table th { background: #E2231A; color: white; }
@@ -86,10 +85,20 @@
                 <h2>📈 歷史班次開出時間紀錄</h2>
                 <div class="filter-group">
                     <select id="station-filter" onchange="loadDepartureData()">
-                        <option value="ALL">選擇觀測車站 (全部)</option>
+                        <option value="ALL">所有車站 (ALL)</option>
+                    </select>
+                    
+                    <select id="period-filter" onchange="loadDepartureData()">
+                        <option value="ALL">任何日子 (ALL)</option>
+                        <option value="WEEKDAY">星期一至五 (平日)</option>
+                        <option value="WEEKEND">星期六及日 (週末)</option>
+                    </select>
+
+                    <select id="hour-filter" onchange="loadDepartureData()">
+                        <option value="ALL">任何時段 (ALL)</option>
                     </select>
                 </div>
-                <div style="max-height: 500px; overflow-y: auto;">
+                <div style="max-height: 550px; overflow-y: auto;">
                     <table class="data-table">
                         <thead>
                             <tr>
@@ -100,7 +109,7 @@
                             </tr>
                         </thead>
                         <tbody id="departure-data-rows">
-                            <tr><td colspan="4" style="color:#888; text-align:center;">請選擇車站載入歷史發車班次</td></tr>
+                            <tr><td colspan="4" style="color:#888; text-align:center;">請選擇篩選條件載入數據...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -110,16 +119,17 @@
     </div>
 
     <script>
+        // 🟢 已修正順序：由北向南排（荃灣 ➔ 中環）
         const TWL_STATIONS = [
-            {code: "CEN", name: "中環"}, {code: "ADM", name: "金鐘"}, {code: "TST", name: "尖沙咀"},
-            {code: "JOR", name: "佐敦"}, {code: "YMT", name: "油麻地"}, {code: "MOK", name: "旺角"},
-            {code: "PRE", name: "太子"}, {code: "SSP", name: "深水埗"}, {code: "CSW", name: "長沙灣"},
-            {code: "LCK", name: "荔枝角"}, {code: "MEF", name: "美孚"}, {code: "LAK", name: "荔景"},
-            {code: "KWF", name: "葵芳"}, {code: "KWH", name: "葵興"}, {code: "TWH", name: "大窩口"},
-            {code: "TSW", name: "荃灣"}
+            {code: "TSW", name: "荃灣"}, {code: "TWH", name: "大窩口"}, {code: "KWH", name: "葵興"},
+            {code: "KWF", name: "葵芳"}, {code: "LAK", name: "荔景"}, {code: "MEF", name: "美孚"},
+            {code: "LCK", name: "荔枝角"}, {code: "CSW", name: "長沙灣"}, {code: "SSP", name: "深水埗"},
+            {code: "PRE", name: "太子"}, {code: "MOK", name: "旺角"}, {code: "YMT", name: "油麻地"},
+            {code: "JOR", name: "佐敦"}, {code: "TST", name: "尖沙咀"}, {code: "ADM", name: "金鐘"},
+            {code: "CEN", name: "中環"}
         ];
 
-        // 初始化車站篩選選單
+        // 初始化車站篩選
         const filterSelect = document.getElementById('station-filter');
         TWL_STATIONS.forEach(sta => {
             let opt = document.createElement('option');
@@ -128,7 +138,15 @@
             filterSelect.appendChild(opt);
         });
 
-        // 載入統計數字
+        // 初始化24小時篩選器
+        const hourSelect = document.getElementById('hour-filter');
+        for(let h=0; h<24; h++) {
+            let opt = document.createElement('option');
+            opt.value = h.toString();
+            opt.textContent = `${h.toString().padStart(2, '0')}:00 - ${h.toString().padStart(2, '0')}:59`;
+            hourSelect.appendChild(opt);
+        }
+
         function loadStats() {
             fetch('/api/admin/stats')
                 .then(res => res.json())
@@ -138,23 +156,26 @@
                 });
         }
 
-        // 載入發車班次歷史歷史表格
+        // 🟢 多維度數據異步載入
         function loadDepartureData() {
             const sta = document.getElementById('station-filter').value;
-            fetch(`/api/admin/departures?station=${sta}`)
+            const period = document.getElementById('period-filter').value;
+            const hour = document.getElementById('hour-filter').value;
+            
+            fetch(`/api/admin/departures?station=${sta}&period=${period}&hour=${hour}`)
                 .then(res => res.json())
                 .then(res => {
                     const tbody = document.getElementById('departure-data-rows');
                     tbody.innerHTML = '';
-                    if(res.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;">該區間暫無發車事件紀錄</td></tr>';
+                    if(!res.data || res.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;">該篩選範圍內暫無班次事件紀錄</td></tr>';
                         return;
                     }
                     res.data.forEach(item => {
                         let row = `<tr>
-                            <td>${item.event_time}</td>
+                            <td>${item.event_time.replace('T', ' ')}</td>
                             <td><b>${getStaName(item.station)}</b> (${item.station})</td>
-                            <td>${item.direction === 'UP' ? '⬆️ 上行' : '⬇️ 下行'}</td>
+                            <td>${item.direction === 'UP' ? '⬆️ 上行 (往荃灣)' : '⬇️ 下行 (往中環)'}</td>
                             <td>${item.dest}</td>
                         </tr>`;
                         tbody.innerHTML += row;
@@ -167,7 +188,7 @@
             return s ? s.name : code;
         }
 
-        // 核心：即時組裝簡易列車位置看板 (直向模擬鐵路綫)
+        // 實時組裝直列式看板 (🟢 已對齊新順序：由北向南)
         function updateLiveTrainBoard() {
             fetch('/api/live')
                 .then(res => res.json())
@@ -175,20 +196,17 @@
                     if (response.status !== "success") return;
                     const trainData = response.data;
 
-                    // 建立查找字典
-                    let atStation = {}; // 哪些車剛好在月台 ttnt == 0
-                    let onTrack = {};   // 哪些車在區間內行駛
+                    let atStation = {}; 
+                    let onTrack = {};   
 
                     trainData.forEach(t => {
-                        if (t.line !== "TWL") return;
                         let sta = t.station.toUpperCase();
                         let dir = t.direction;
                         let ttnt = parseInt(t.ttnt);
                         
                         if (ttnt === 0) {
                             atStation[`${sta}_${dir}`] = "🚇";
-                        } else if (ttnt === 1 || ttnt === 2) {
-                            // 判定在該站的前一個區間行駛中
+                        } else if (ttnt > 0 && ttnt <= 2) {
                             onTrack[`${sta}_${dir}`] = "🚇";
                         }
                     });
@@ -196,35 +214,34 @@
                     const tbody = document.getElementById('live-train-board');
                     tbody.innerHTML = '';
 
-                    // 由北向南（荃灣往下排到中環）渲染簡易看板
+                    // 順序渲染：由荃灣 (i=0) 到中環 (i=15)
                     for (let i = 0; i < TWL_STATIONS.length; i++) {
                         let curr = TWL_STATIONS[i];
                         
-                        // 1. 渲染車站月台列
                         let upAtStation = atStation[`${curr.code}_UP`] || "";
                         let downAtStation = atStation[`${curr.code}_DOWN`] || "";
                         
                         let stationRow = `<tr>
                             <td class="station-name">${curr.name} <span style="font-size:10px;color:#999;">${curr.code}</span></td>
-                            <td style="text-align:center;font-size:16px;">${upAtStation}</td>
-                            <td style="text-align:center;font-size:16px;">${downAtStation}</td>
+                            <td style="text-align:center;font-size:16px;color:#1ea2e2;">${upAtStation}</td>
+                            <td style="text-align:center;font-size:16px;color:#e2231a;">${downAtStation}</td>
                         </tr>`;
                         tbody.innerHTML += stationRow;
 
-                        // 2. 渲染站與站之間的「行駛隧道區間」列（最後一站下不用渲染隧道）
+                        // 渲染站間隧道
                         if (i < TWL_STATIONS.length - 1) {
-                            let next = TWL_STATIONS[i+1];
+                            let next = TWL_STATIONS[i+1]; 
                             
-                            // 對於 UP (往荃灣，由下往上行駛)：下一站是 curr.code 的車，代表在區間中
+                            // 往荃灣 (UP)：如果是從 next 車站開往 curr 車站，代表在他們之間的隧道
                             let upOnTrack = onTrack[`${curr.code}_UP`] || ""; 
-                            // 對於 DOWN (往中環，由上往下行駛)：下一站是 next.code 的車，代表在區間中
+                            // 往中環 (DOWN)：如果是從 curr 車站開往 next 車站，代表在他們之間的隧道
                             let downOnTrack = onTrack[`${next.code}_DOWN`] || "";
 
                             if (upOnTrack || downOnTrack) {
                                 let trackRow = `<tr style="background:#fcfcfc;">
-                                    <td style="font-size:11px;color:#999;padding:4px 10px;">  ⇅ 隧道區間</td>
-                                    <td class="track-cell">${upOnTrack}</td>
-                                    <td class="track-cell">${downOnTrack}</td>
+                                    <td style="font-size:11px;color:#999;padding:4px 10px;">  ⇅ 站間區間</td>
+                                    <td class="track-cell" style="color:#1ea2e2;">${upOnTrack}</td>
+                                    <td class="track-cell" style="color:#e2231a;">${downOnTrack}</td>
                                 </tr>`;
                                 tbody.innerHTML += trackRow;
                             }
@@ -233,13 +250,12 @@
                 });
         }
 
-        // 輪詢定時器
         loadStats();
         loadDepartureData();
         updateLiveTrainBoard();
         
-        setInterval(loadStats, 10000);
-        setInterval(updateLiveTrainBoard, 10000);
+        setInterval(loadStats, 15000);
+        setInterval(updateLiveTrainBoard, 15000);
     </script>
 </body>
 </html>
