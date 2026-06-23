@@ -121,16 +121,17 @@ def background_collector():
 threading.Thread(target=background_collector, daemon=True).start()
 
 # ==========================================
-# 📬 路由
+# 📬 路由 (修正 Template 渲染與 SQL 語法)
 # ==========================================
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse(request=request, name="map.html", context={})
+    # 🟢 修正：使用 FastAPI 最標準的 TemplateResponse 回傳方式
+    return templates.TemplateResponse("map.html", {"request": request})
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
-    return templates.TemplateResponse(request=request, name="admin.html", context={})
+    return templates.TemplateResponse("admin.html", {"request": request})
 
 @app.get("/api/live")
 async def get_live_trains():
@@ -161,33 +162,27 @@ async def get_live_trains():
         })
     return {"status": "success", "data": trains}
 
-# 🟢 升級：支援 車站 + 平日/週末 + 小時區間 的多維度篩選 API
 @app.get('/api/admin/departures')
 async def api_admin_departures(station: str = "ALL", period: str = "ALL", hour: str = "ALL"):
     conn = get_db()
     cursor = conn.cursor()
     
-    # 建立基礎 SQL 指令 (利用 SQLite 的 strftime 進行高效時間解析)
-    # %w 拔出星期幾 (0是週日，1-5是週一至五，6是週六)
-    # %H 拔出24小時制的小時
     query = "SELECT event_time, station, direction, dest FROM departure_events WHERE 1=1"
     params = []
     
-    # 1. 車站篩選
     if station and station != "ALL":
         query += " AND station = ?"
         params.append(station.upper())
         
-    # 2. 平日/週末篩選
     if period == "WEEKDAY":
         query += " AND strftime('%w', event_time) BETWEEN '1' AND '5'"
     elif period == "WEEKEND":
         query += " AND (strftime('%w', event_time) = '0' OR strftime('%w', event_time) = '6')"
         
-    # 3. 小時範圍篩選
+    # 🟢 核心修正：將 '%h' 改為大寫的 '%H'（SQLite 24小時制標準格式）
     if hour and hour != "ALL":
-        query += " AND strftime('%h', event_time) = ?"
-        params.append(f"{int(hour):02d}") # 確保格式如 '08', '14'
+        query += " AND strftime('%H', event_time) = ?"
+        params.append(f"{int(hour):02d}")
         
     query += " ORDER BY event_time DESC LIMIT 100"
     
