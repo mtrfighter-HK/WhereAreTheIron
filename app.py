@@ -4,14 +4,21 @@ import requests
 import threading
 import time
 import json
+import traceback  # 🟢 引入偵錯工具
 from datetime import datetime
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 
 app = FastAPI(title="MTR 實時地圖 - 荃灣綫 大數據持久化版")
 
-templates = Jinja2Templates(directory="templates")
+# 🟢 確保路徑正確，增加防禦性路徑偵測
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
+if not os.path.exists(TEMPLATE_DIR):
+    TEMPLATE_DIR = "templates" # 備用方案
+
+templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
 # ==========================================
 # 💾 Railway Volume 永久路徑設定
@@ -124,16 +131,25 @@ def background_collector():
 threading.Thread(target=background_collector, daemon=True).start()
 
 # ==========================================
-# 📬 路由 (徹底排除 SQL 500 崩潰點)
+# 📬 路由 (帶有暴力排錯監控的盾牌)
 # ==========================================
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("map.html", {"request": request})
+    try:
+        # 🟢 如果這裡出錯，會直接在網頁打印出到底缺檔案還是語法錯
+        return templates.TemplateResponse("map.html", {"request": request})
+    except Exception as e:
+        error_msg = traceback.format_exc()
+        return PlainTextResponse(f"❌ 主頁渲染崩潰！報錯詳細原因如下：\n\n{error_msg}", status_code=500)
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
-    return templates.TemplateResponse("admin.html", {"request": request})
+    try:
+        return templates.TemplateResponse("admin.html", {"request": request})
+    except Exception as e:
+        error_msg = traceback.format_exc()
+        return PlainTextResponse(f"❌ 後台頁面渲染崩潰！報錯詳細原因如下：\n\n{error_msg}", status_code=500)
 
 @app.get("/api/live")
 async def get_live_trains():
@@ -165,7 +181,7 @@ async def get_live_trains():
             })
         return {"status": "success", "data": trains}
     except Exception as e:
-        return {"status": "error", "message": str(e), "data": []}
+        return {"status": "error", "message": traceback.format_exc(), "data": []}
 
 @app.get('/api/admin/departures')
 async def api_admin_departures(station: str = "ALL", period: str = "ALL", hour: str = "ALL"):
@@ -185,7 +201,6 @@ async def api_admin_departures(station: str = "ALL", period: str = "ALL", hour: 
         elif period == "WEEKEND":
             query += " AND (strftime('%w', event_time) = '0' OR strftime('%w', event_time) = '6')"
             
-        # 🟢 修正防禦寫法：使用大寫的 '%H'，並加上 CAST 轉型確保絕對不會因為字串對齊出錯
         if hour and hour != "ALL":
             query += " AND CAST(strftime('%H', event_time) AS INTEGER) = ?"
             params.append(int(hour))
@@ -197,8 +212,7 @@ async def api_admin_departures(station: str = "ALL", period: str = "ALL", hour: 
         conn.close()
         return {"status": "success", "data": [dict(row) for row in rows]}
     except Exception as e:
-        # 🟢 如果發生錯誤，回傳 JSON 格式而不是直接噴出 500 錯誤，方便前端調試
-        return {"status": "error", "message": str(e), "data": []}
+        return {"status": "error", "message": traceback.format_exc(), "data": []}
 
 @app.get('/api/admin/stats')
 async def api_admin_stats():
