@@ -1,178 +1,232 @@
 import os
 import sqlite3
 import requests
+import threading
+import time
+import json
+from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
-from apscheduler.schedulers.background import BackgroundScheduler
 
-app = FastAPI()
+app = FastAPI(title="MTR 實時地圖 - 荃灣綫 大數據持久化版")
 
-# 允許跨域請求（避免前端 Leaflet 呼叫時被封鎖）
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# 設定 HTML 範本目錄
+# 設定 HTML 範本目錄 (FastAPI 用)
 templates = Jinja2Templates(directory="templates")
 
 # ==========================================
-# 💾 Railway Volume 永久路徑與多執行緒安全設定
+# 💾 方案 A：Railway Volume 永久路徑設定
 # ==========================================
 DB_DIR = "/app/data" if os.path.exists("/app/data") else "."
-DB_PATH = os.path.join(DB_DIR, "mtr_live.db")
+DB_PATH = os.path.join(DB_DIR, "mtr_data.db")
 
-def get_db_connection():
-    # 加上 check_same_thread=False 防止 APScheduler 與 FastAPI 路由衝突引發 500 錯誤
+def get_db():
+    # 加上 check_same_thread=False 確保多執行緒背景寫入與 FastAPI 讀取不會引發 500 錯誤
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
-def init_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # 原始數據表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS train_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            station TEXT,
-            direction TEXT,
-            ttnt INTEGER,
-            dest TEXT
-        )
-    ''')
-    # 聚合後的班次發車時間表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS departure_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-            station TEXT,
-            direction TEXT,
-            dest TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-init_db()
+# 初始化資料庫
+conn = get_db()
+# 1. 原始紀錄表
+conn.execute('''CREATE TABLE IF NOT EXISTS mtr_ttnt (
+    id INTEGER PRIMARY KEY,
+    timestamp TEXT,
+    line TEXT,
+    station TEXT,
+    direction TEXT,
+    dest TEXT,
+    ttnt INTEGER,
+    is_delay TEXT,
+    collected_at TEXT
+)''')
+# 2. 聚合後的實際發車班次表 (0 變大)
+conn.execute('''CREATE TABLE IF NOT EXISTS departure_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_time TEXT,
+    station TEXT,
+    direction TEXT,
+    dest TEXT
+)''')
+conn.commit()
+conn.close()
 
 # ==========================================
-# 📡 數據收集器 (Collector) & 發車事件捕捉
+# 📡 背景收集器（結合發車事件捕捉與自動清理機制）
 # ==========================================
-last_api_state = {}
-
-def fetch_mtr_data():
-    global last_api_state
-    try:
-        train_data = get_current_mtr_schedule()
-        
-        if train_data and isinstance(train_data, list):
-            conn = get_db_connection()
-            cursor = conn.cursor()
+def background_collector():
+    stations = [
+        ("TWL", "CEN"), ("TWL", "ADM"), ("TWL", "TST"), ("TWL", "JOR"),
+        ("TWL", "YMT"), ("TWL", "MOK"), ("TWL", "PRE"), ("TWL", "SSP"),
+        ("TWL", "CSW"), ("TWL", "LCK"), ("TWL", "MEF"), ("TWL", "LAK"),
+        ("TWL", "KWF"), ("TWL", "KWH"), ("TWL", "TWH"), ("TWL", "TSW")
+    ]
+    
+    last_api_state = {} # 記憶體追蹤各站上一秒的 ttnt 狀態
+    backup_day_counter = 0 # 用來計算天數進行 GitHub 備份
+    
+    while True:
+        try:
+            conn = get_db()
+            c = conn.cursor()
+            now = datetime.now().isoformat()
             
-            for train in train_data:
-                if train.get("line") != "TWL": continue
-                sta = str(train.get("station", "")).upper()
-                dir_ = train.get("direction", "")
-                ttnt = int(train.get("ttnt", 0))
-                dest = train.get("dest", "")
-                
-                # 1. 寫入原始紀錄
-                cursor.execute(
-                    "INSERT INTO train_records (station, direction, ttnt, dest) VALUES (?, ?, ?, ?)",
-                    (sta, dir_, ttnt, dest)
-                )
-                
-                # 2. 核心發車事件捕捉 (0 變大)
-                key = f"{sta}_{dir_}"
-                if key in last_api_state:
-                    last_ttnt = last_api_state[key]
-                    if last_ttnt == 0 and ttnt > 0:
-                        cursor.execute(
-                            "INSERT INTO departure_events (station, direction, dest) VALUES (?, ?, ?)",
-                            (sta, dir_, dest)
-                        )
-                last_api_state[key] = ttnt
-                
+            for line, sta in stations:
+                try:
+                    url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={line}&sta={sta}"
+                    r = requests.get(url, timeout=8)
+                    if r.status_code == 200:
+                        data = r.json().get('data', {}).get(f'{line}-{sta}', {})
+                        for direction in ['UP', 'DOWN']:
+                            if direction in data:
+                                for train in data[direction]:
+                                    ttnt_val = train.get('ttnt')
+                                    # 港鐵 API ttnt=0 或者是大於0的數字都是有效數據
+                                    if ttnt_val is not None and str(ttnt_val).isdigit():
+                                        ttnt_int = int(ttnt_val)
+                                        dest = train.get('dest')
+                                        is_delay_val = train.get('isdelay', 'N')
+                                        
+                                        # 1. 寫入原始紀錄
+                                        c.execute('''INSERT INTO mtr_ttnt 
+                                            (timestamp, line, station, direction, dest, ttnt, is_delay, collected_at)
+                                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                                            (now, line, sta, direction, dest, ttnt_int, is_delay_val, now))
+                                        
+                                        # 2. 核心發車捕捉邏輯 (當前是正整數，且上次記憶是0)
+                                        key = f"{sta}_{direction}"
+                                        if key in last_api_state:
+                                            last_ttnt = last_api_state[key]
+                                            if last_ttnt == 0 and ttnt_int > 0:
+                                                c.execute('''INSERT INTO departure_events 
+                                                    (event_time, station, direction, dest)
+                                                    VALUES (?, ?, ?, ?)''',
+                                                    (now, sta, direction, dest))
+                                                print(f"🚀 [後台捕捉發車] {sta} 往 {dest} ({direction})")
+                                                
+                                        last_api_state[key] = ttnt_int
+                except Exception as e:
+                    print(f"抓取車站 {sta} 失敗: {e}")
+            
             conn.commit()
             conn.close()
-    except Exception as e:
-        print(f"後台收集器背景運作中... 訊息: {e}")
+        except Exception as e:
+            print(f"資料庫寫入錯誤: {e}")
+            
+        # ==========================================
+        # 📦 預留：定時匯出 JSON 並清理 SQLite 空間
+        # ==========================================
+        backup_day_counter += 1
+        if backup_day_counter >= 2880: # 大約每 24 小時執行一次清理檢查 (30秒 * 2880 = 24小時)
+            backup_day_counter = 0
+            try:
+                # 這裡未來可以接入 GitHub API 將舊數據推送到 Repository
+                print("📅 [自動化排程] 開始執行 SQLite 資料瘦身與 GitHub 冷數據備份檢查...")
+                # 刪除 7 天前的原始爆量數據，保持 Volume 輕量
+                conn = get_db()
+                conn.execute("DELETE FROM mtr_ttnt WHERE timestamp < datetime('now', '-7 days')")
+                conn.execute("VACUUM")
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"定時清理失敗: {e}")
 
-# 核心功能函數：請在此處原封不動黏貼你原本抓取港鐵 API 的核心 Requests 邏輯！
-def get_current_mtr_schedule():
-    try:
-        # 🟢 請在此處保持或貼回你之前能向港鐵成功拿到資料的 URL 與 filtration 邏輯
-        return [] 
-    except Exception as e:
-        print(f"抓取港鐵數據失敗: {e}")
-        return []
+        # 每 30 秒抓取一次（保持你原本完美的即時性設定）
+        time.sleep(30)
 
-# 每 12 秒後台自動運行收集
-scheduler = BackgroundScheduler()
-scheduler.add_job(fetch_mtr_data, 'interval', seconds=12)
-scheduler.start()
+threading.Thread(target=background_collector, daemon=True).start()
 
 # ==========================================
-# 📬 FastAPI 路由
+# 📬 路由 (完美相容原本的 GeoJSON 讀取)
 # ==========================================
 
-@app.get('/api/live')
-async def api_live():
-    try:
-        data = get_current_mtr_schedule()
-        return {"status": "success", "data": data}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    # 使用 FastAPI Jinja2 渲染，確保穩定性
+    return templates.TemplateResponse("map.html", {"request": request})
 
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    # 跳轉渲染你剛才看到的全新升級版數據後台
+    return templates.TemplateResponse("admin.html", {"request": request})
+
+@app.get("/api/live")
+async def get_live_trains():
+    conn = get_db()
+    c = conn.cursor()
+    # 保持你原本完美的「撈出最近 3 分鐘最新紀錄」
+    c.execute('''
+        SELECT line, station, direction, dest, ttnt, is_delay, timestamp 
+        FROM mtr_ttnt 
+        WHERE timestamp >= datetime('now', '-3 minutes') AND line = 'TWL'
+        GROUP BY line, station, direction
+        ORDER BY timestamp DESC
+    ''')
+    rows = c.fetchall()
+    conn.close()
+    
+    trains = []
+    for row in rows:
+        trains.append({
+            "line": row["line"],
+            "station": row["station"],
+            "direction": row["direction"],
+            "dest": row["dest"],
+            "ttnt": row["ttnt"],
+            "is_delay": row["is_delay"]
+        })
+    return {"status": "success", "data": trains}
+
+# 後台專用 API 1：獲取特定車站與時段的開出班次歷史紀錄
 @app.get('/api/admin/departures')
 async def api_admin_departures(station: str = ""):
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        if station and station != 'ALL':
-            cursor.execute(
-                "SELECT event_time, station, direction, dest FROM departure_events WHERE station = ? ORDER BY event_time DESC LIMIT 50",
-                (station.upper(),)
-            )
-        else:
-            cursor.execute("SELECT event_time, station, direction, dest FROM departure_events ORDER BY event_time DESC LIMIT 50")
-        rows = cursor.fetchall()
-        conn.close()
-        return {"status": "success", "data": [dict(row) for row in rows]}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+    conn = get_db()
+    cursor = conn.cursor()
+    if station and station != 'ALL':
+        cursor.execute(
+            "SELECT event_time, station, direction, dest FROM departure_events WHERE station = ? ORDER BY event_time DESC LIMIT 50",
+            (station.upper(),)
+        )
+    else:
+        cursor.execute("SELECT event_time, station, direction, dest FROM departure_events ORDER BY event_time DESC LIMIT 50")
+    rows = cursor.fetchall()
+    conn.close()
+    return {"status": "success", "data": [dict(row) for row in rows]}
 
+# 後台專用 API 2：獲取持久化儲存總量統計
 @app.get('/api/admin/stats')
 async def api_admin_stats():
     try:
-        conn = get_db_connection()
+        conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM train_records")
+        cursor.execute("SELECT COUNT(*) FROM mtr_ttnt")
         total_records = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM departure_events")
         total_events = cursor.fetchone()[0]
         conn.close()
         return {"total_records": total_records, "total_departures": total_events}
-    except Exception as e:
+    except Exception:
         return {"total_records": 0, "total_departures": 0}
 
-@app.get('/', response_class=HTMLResponse)
-async def index_page(request: Request):
-    return templates.TemplateResponse("map.html", {"request": request})
+# ====================== 讀取 GeoJSON 路由 ======================
+@app.get("/系統基本檔/StationLocation_2026_06.geojson")
+async def get_station_geojson():
+    file_path = os.path.join("系統基本檔", "StationLocation_2026_06.geojson")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return JSONResponse(json.load(f))
+    return JSONResponse({"error": "File not found"}, status_code=404)
 
-@app.get('/admin', response_class=HTMLResponse)
-async def admin_page(request: Request):
-    return templates.TemplateResponse("admin.html", {"request": request})
+@app.get("/路線軌道檔/Track.TsuenWanLine.geojson")
+async def get_track_geojson():
+    file_path = os.path.join("路線軌道檔", "Track.TsuenWanLine.geojson")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return JSONResponse(json.load(f))
+    return JSONResponse({"error": "File not found"}, status_code=404)
 
 # ==========================================
-# 🚀 啟動區塊 (Railway 部署最核心部分)
+# 🚀 啟動區塊 (完美保留環境變數 PORT 監聽)
 # ==========================================
 if __name__ == "__main__":
     import uvicorn
