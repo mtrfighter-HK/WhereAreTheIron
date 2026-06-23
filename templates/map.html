@@ -21,8 +21,8 @@
         }
         .leaflet-tooltip-left::before, .leaflet-tooltip-right::before,
         .leaflet-tooltip-top::before, .leaflet-tooltip-bottom::before { display: none !important; }
-        
-        /* 【修復】常規巡航列車點：移除 transform transition 避免干擾 Leaflet 縮放 */
+
+        /* 常規巡航列車點：移除 transform transition 避免干擾 Leaflet 縮放 */
         .train-container {
             width: 10px; height: 10px; display: flex; align-items: center; justify-content: center;
         }
@@ -30,8 +30,8 @@
             width: 8px; height: 8px; background-color: #ffffff; border: 2px solid #E2231A; border-radius: 50%;
             box-shadow: 0 0 3px rgba(0,0,0,0.3);
         }
-        
-        /* 【修復】延誤閃爍動畫：只針對內層 div 縮放，絕不干擾 Leaflet Marker 外層 */
+
+        /* 延誤閃爍動畫：只針對內層 div 縮放，絕不干擾 Leaflet Marker 外層 */
         .train-dot-delayed {
             width: 8px; height: 8px; background-color: #ffcc00; border: 2px solid #cc9900; border-radius: 50%;
             box-shadow: 0 0 8px #ffcc00;
@@ -73,7 +73,7 @@
             fetch('/系統基本檔/StationLocation_2026_06.geojson').then(res => res.json()),
             fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94%2FTravelTimeConfig.json').then(res => res.json()).catch(() => null)
         ]).then(([trackData, stationData, timeConfig]) => {
-            
+
             trackFeatures = trackData.features;
             L.geoJSON(trackData, { style: { color: '#E2231A', weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
 
@@ -137,7 +137,7 @@
                     Object.keys(currentGroup).forEach(key => {
                         var currentTrain = currentGroup[key];
                         var lastTrain = lastStationState[key];
-                        
+
                         var currentTtnt = parseInt(currentTrain.ttnt);
                         var currentSta = currentTrain.station.toUpperCase(); 
                         var dir = currentTrain.direction;
@@ -157,9 +157,8 @@
                                 }
                             }
                         } else {
-                            // 【修復 Bug 1】熱身機制收窄判定條件，防止鬼車生成
+                            // 熱身機制收窄判定條件，防止鬼車生成
                             if (prevSta && !activeTrains[trainId]) {
-                                // 只有當車次真的剛開出 (ttnt為2或3) 才會注入。如果 ttnt >= 4，代表車子還在更後面的車站，不在此區間生成！
                                 if (currentTtnt === 2 || currentTtnt === 3) {
                                     console.log(`⏱️ [熱身同步] 注入行駛區間: ${prevSta} ➔ ${currentSta} (ttnt: ${currentTtnt})`);
                                     launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest);
@@ -173,7 +172,7 @@
                         // 【誤差補償與延誤監聽】
                         if (activeTrains[trainId]) {
                             var runningTrain = activeTrains[trainId];
-                            
+
                             if (currentTtnt === 1 || currentTtnt === 0) {
                                 if (!runningTrain.inCompensationZone || runningTrain.isDelayed) {
                                     runningTrain.enterCompensation(runningTrain.ratio); 
@@ -188,22 +187,54 @@
                         lastStationState[key] = currentTrain;
                     });
 
-                    // 更新月台氣泡
+                    // ==========================================
+                    // 🎯 核心優化：更新月台氣泡 (每個方向只顯示首班車)
+                    // ==========================================
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
                         var tooltip = marker.getTooltip();
                         var staName = tooltip ? tooltip.getContent() : staCode;
+
+                        // 建立結構漂亮的彈出窗 HTML
+                        var popupContent = `<div style="font-family: Arial, sans-serif; min-width: 170px;">
+                            <h3 style="margin: 0 0 8px 0; color: #E2231A; border-bottom: 2px solid #E2231A; padding-bottom: 4px; font-size: 15px;">${staName}站 (${staCode})</h3>`;
                         
-                        var popupContent = `<b>${staName} (${staCode})</b><br><hr style="border:0;border-top:1px solid #ccc;margin:5px 0;">`;
                         if (schedules.length === 0) {
-                            popupContent += `<span style="color:#888;font-size:12px;">暫無實時列車即將進站</span>`;
+                            popupContent += `<span style="color:#888; font-size:12px;">暫無實時列車即將進站</span>`;
                         } else {
-                            schedules.forEach(t => {
-                                var dirText = t.direction === "UP" ? "往荃灣" : "往中環";
-                                popupContent += `<div style="font-size:12px;margin:3px 0;">• <b>${dirText}</b>: <span style="color:#E2231A;font-weight:bold;">${t.ttnt}</span> 分鐘後</div>`;
-                            });
+                            // 1. 分別篩選出上行(UP)和下行(DOWN)的列車
+                            var upTrains = schedules.filter(t => t.direction === 'UP');
+                            var downTrains = schedules.filter(t => t.direction === 'DOWN');
+
+                            // 2. 排序並找出最快到站的那班車 (ttnt 最小)
+                            var nextUpTrain = upTrains.sort((a, b) => parseInt(a.ttnt) - parseInt(b.ttnt))[0];
+                            var nextDownTrain = downTrains.sort((a, b) => parseInt(a.ttnt) - parseInt(b.ttnt))[0];
+
+                            // 3. 組裝上行 (往荃灣) 乾淨畫面
+                            if (nextUpTrain) {
+                                var upTtnt = parseInt(nextUpTrain.ttnt);
+                                var upTimeText = (upTtnt === 0) ? 
+                                    `<span style="color:green; font-weight:bold;">列車進站中</span>` : 
+                                    `<b style="color:#1ea2e2; font-size:14px;">${upTtnt}</b> 分鐘`;
+                                popupContent += `<p style="margin: 6px 0; font-size: 13px;"><b>⬆️ 往荃灣：</b>${upTimeText}</p>`;
+                            } else {
+                                popupContent += `<p style="margin: 6px 0; font-size: 13px; color:#999;"><b>⬆️ 往荃灣：</b>暫無班次數據</p>`;
+                            }
+
+                            // 4. 組裝下行 (往中環) 乾淨畫面
+                            if (nextDownTrain) {
+                                var downTtnt = parseInt(nextDownTrain.ttnt);
+                                var downTimeText = (downTtnt === 0) ? 
+                                    `<span style="color:green; font-weight:bold;">列車進站中</span>` : 
+                                    `<b style="color:#e2231a; font-size:14px;">${downTtnt}</b> 分鐘`;
+                                popupContent += `<p style="margin: 6px 0; font-size: 13px;"><b>⬇️ 往中環：</b>${downTimeText}</p>`;
+                            } else {
+                                popupContent += `<p style="margin: 6px 0; font-size: 13px; color:#999;"><b>⬇️ 往中環：</b>暫無班次數據</p>`;
+                            }
                         }
+
+                        popupContent += `</div>`;
                         marker.setPopupContent(popupContent);
                     });
                 });
@@ -228,7 +259,7 @@
                 this.dest = dest;
                 this.id = `${direction}_${fromSta}_${toSta}`;
                 this.isDelayed = false;
-                
+
                 var geojsonDataDir = (direction === "UP") ? "Up" : "Down";
                 this.trackFeature = trackFeatures.find(f => f.properties.direction === geojsonDataDir && f.properties.from === fromSta && f.properties.to === toSta);
                 if (!this.trackFeature) return;
@@ -242,14 +273,14 @@
                 this.inCompensationZone = false;
                 this.timer = null;
 
-                // 【修復 Bug 2】使用 HTML 包裹內層 div 圓點，確保縮放時定位完全由 Leaflet 接管，絕不飄移
+                // 使用 HTML 包裹內層 div 圓點，確保縮放時定位完全由 Leaflet 接管，絕不飄移
                 this.iconElement = L.divIcon({ 
                     className: 'train-container', 
                     html: '<div class="train-dot" id="dot_' + this.id + '"></div>', 
                     iconSize: [10, 10], 
                     iconAnchor: [5, 5] 
                 });
-                
+
                 this.marker = L.marker([this.coords[0][1], this.coords[0][0]], { icon: this.iconElement, pane: 'trainPane' }).addTo(map);
                 this.updatePopupText("自動巡航中");
 
@@ -269,7 +300,7 @@
                 if (this.timer) clearInterval(this.timer);
                 this.isDelayed = false;
                 this.startTime = Date.now();
-                
+
                 this.timer = setInterval(() => {
                     var elapsed = Date.now() - this.startTime;
                     var currentProgress = elapsed / this.totalDuration;
@@ -284,14 +315,14 @@
                 }, 1000);
             }
 
-            // ⚠️ 修正延誤觸發：只改變內層 HTML 樣式，地圖縮放時絕不留喺原位
+            // 修正延誤觸發：只改變內層 HTML 樣式，地圖縮放時絕不留在原位
             triggerDelay() {
                 this.isDelayed = true;
                 if (this.timer) clearInterval(this.timer); 
-                
+
                 var innerDot = document.getElementById('dot_' + this.id);
                 if (innerDot) {
-                    innerDot.className = 'train-dot-delayed'; // 激活會縮放閃爍的內層黃點
+                    innerDot.className = 'train-dot-delayed'; 
                 }
                 this.updatePopupText("<span style='color:orange;font-weight:bold;'>信號燈紅燈等待中</span>");
             }
@@ -301,7 +332,6 @@
                 this.isDelayed = false;
                 if (this.timer) clearInterval(this.timer);
 
-                // 恢復為普通紅點
                 var innerDot = document.getElementById('dot_' + this.id);
                 if (innerDot) {
                     innerDot.className = 'train-dot';
@@ -362,7 +392,7 @@
         }
 
         const TWL_ORDER = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"];
-        
+
         function getPreviousStation(nextSta, direction) {
             var index = TWL_ORDER.indexOf(nextSta);
             if (index === -1) return null;
@@ -387,15 +417,4 @@
 
         function interpolateAlongLineString(coords, ratio) {
             if (!coords || coords.length === 0) return null;
-            if (coords.length === 1) return [coords[0][1], coords[0][0]];
-            var targetIndex = Math.floor((coords.length - 1) * ratio);
-            var nextIndex = targetIndex + 1;
-            if (nextIndex >= coords.length) return [coords[coords.length - 1][1], coords[coords.length - 1][0]];
-            var p1 = coords[targetIndex];
-            var p2 = coords[nextIndex];
-            var segmentRatio = ((coords.length - 1) * ratio) - targetIndex;
-            return [p1[1] + (p2[1] - p1[1]) * segmentRatio, p1[0] + (p2[0] - p1[0]) * segmentRatio]; 
-        }
-    </script>
-</body>
-</html>
+            if (coords.length === 1) retur
