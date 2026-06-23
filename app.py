@@ -11,11 +11,10 @@ from fastapi.templating import Jinja2Templates
 
 app = FastAPI(title="MTR 實時地圖 - 荃灣綫 大數據持久化版")
 
-# 設定 HTML 範本目錄
 templates = Jinja2Templates(directory="templates")
 
 # ==========================================
-# 💾 方案 A：Railway Volume 永久路徑設定
+# 💾 Railway Volume 永久路徑設定
 # ==========================================
 DB_DIR = "/app/data" if os.path.exists("/app/data") else "."
 DB_PATH = os.path.join(DB_DIR, "mtr_data.db")
@@ -122,12 +121,11 @@ def background_collector():
 threading.Thread(target=background_collector, daemon=True).start()
 
 # ==========================================
-# 📬 路由 (修正 Jinja2 傳參，避免 unhashable 500 錯誤)
+# 📬 路由
 # ==========================================
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    # 🟢 修正點：顯式傳入 context= 參數，防止 FastAPI 內部雜湊報錯
     return templates.TemplateResponse(request=request, name="map.html", context={})
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -138,7 +136,6 @@ async def admin_page(request: Request):
 async def get_live_trains():
     conn = get_db()
     c = conn.cursor()
-    # 🟢 優化點：改用更嚴謹的子查詢獲取每個站點最新的一筆紀錄，100% 避免數據重疊
     c.execute('''
         SELECT t.line, t.station, t.direction, t.dest, t.ttnt, t.is_delay 
         FROM mtr_ttnt t
@@ -164,17 +161,37 @@ async def get_live_trains():
         })
     return {"status": "success", "data": trains}
 
+# 🟢 升級：支援 車站 + 平日/週末 + 小時區間 的多維度篩選 API
 @app.get('/api/admin/departures')
-async def api_admin_departures(station: str = ""):
+async def api_admin_departures(station: str = "ALL", period: str = "ALL", hour: str = "ALL"):
     conn = get_db()
     cursor = conn.cursor()
-    if station and station != 'ALL':
-        cursor.execute(
-            "SELECT event_time, station, direction, dest FROM departure_events WHERE station = ? ORDER BY event_time DESC LIMIT 50",
-            (station.upper(),)
-        )
-    else:
-        cursor.execute("SELECT event_time, station, direction, dest FROM departure_events ORDER BY event_time DESC LIMIT 50")
+    
+    # 建立基礎 SQL 指令 (利用 SQLite 的 strftime 進行高效時間解析)
+    # %w 拔出星期幾 (0是週日，1-5是週一至五，6是週六)
+    # %H 拔出24小時制的小時
+    query = "SELECT event_time, station, direction, dest FROM departure_events WHERE 1=1"
+    params = []
+    
+    # 1. 車站篩選
+    if station and station != "ALL":
+        query += " AND station = ?"
+        params.append(station.upper())
+        
+    # 2. 平日/週末篩選
+    if period == "WEEKDAY":
+        query += " AND strftime('%w', event_time) BETWEEN '1' AND '5'"
+    elif period == "WEEKEND":
+        query += " AND (strftime('%w', event_time) = '0' OR strftime('%w', event_time) = '6')"
+        
+    # 3. 小時範圍篩選
+    if hour and hour != "ALL":
+        query += " AND strftime('%h', event_time) = ?"
+        params.append(f"{int(hour):02d}") # 確保格式如 '08', '14'
+        
+    query += " ORDER BY event_time DESC LIMIT 100"
+    
+    cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
     conn.close()
     return {"status": "success", "data": [dict(row) for row in rows]}
@@ -193,7 +210,7 @@ async def api_admin_stats():
     except Exception:
         return {"total_records": 0, "total_departures": 0}
 
-# ====================== 讀取 GeoJSON 路由 ======================
+# GeoJSON 路由保持不變
 @app.get("/系統基本檔/StationLocation_2026_06.geojson")
 async def get_station_geojson():
     file_path = os.path.join("系統基本檔", "StationLocation_2026_06.geojson")
