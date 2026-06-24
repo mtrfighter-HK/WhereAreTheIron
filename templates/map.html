@@ -188,7 +188,7 @@
                     });
 
                     // ==========================================
-                    // 🎯 核心改動：更新月台氣泡 (每個方向只顯示首班車)
+                    // 🎯 更新月台氣泡 (每個方向只顯示首班車)
                     // ==========================================
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
@@ -313,7 +313,7 @@
 
                 var innerDot = document.getElementById('dot_' + this.id);
                 if (innerDot) {
-                    innerDot.className = 'train-dot-delayed'; // 激活會縮放閃爍的內層黃點
+                    innerDot.className = 'train-dot-delayed'; 
                 }
                 this.updatePopupText("<span style='color:orange;font-weight:bold;'>信號燈紅燈等待中</span>");
             }
@@ -323,7 +323,8 @@
                 this.isDelayed = false;
                 if (this.timer) clearInterval(this.timer);
 
-                # 恢復為普通紅點
+                // 🟢 已修正：將原本錯誤的 # 改為標準的 JS 雙斜線 // 
+                // 恢復為普通紅點
                 var innerDot = document.getElementById('dot_' + this.id);
                 if (innerDot) {
                     innerDot.className = 'train-dot';
