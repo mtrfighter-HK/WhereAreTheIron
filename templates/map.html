@@ -2,7 +2,7 @@
 <html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
-    <title>MTR 實時列車地圖 - 多路線分支版</title>
+    <title>MTR 實時列車地圖 - 多路線修復版</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
@@ -24,7 +24,7 @@
 
         .train-container {
             width: 12px !important; height: 12px !important; display: flex; align-items: center; justify-content: center;
-            pointer-events: none; /* 點擊穿透 */
+            pointer-events: none;
         }
         .train-dot {
             width: 10px !important; height: 10px !important; background-color: #ffffff; border-radius: 50% !important; 
@@ -39,7 +39,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        var map = L.map('map').setView([22.315, 114.200], 12.5); // 微調中心點以同時看見兩線
+        var map = L.map('map').setView([22.321, 114.170], 12.0);
 
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; OpenStreetMap &copy; CARTO'
@@ -51,19 +51,17 @@
 
         var stationCoords = {}; 
         var stationLayers = {}; 
-        var stationLineMapping = {}; // 記錄車站屬於哪條線，支援轉車站
+        var stationLineMapping = {}; 
         var trackFeatures = []; 
         var travelTimeConfig = {}; 
         var lastStationState = {}; 
         var activeTrains = {}; 
 
-        // 🎯 路線顏色配置
         const LINE_COLORS = {
-            "TWL": "#E2231A", // 荃灣線 - 紅色
-            "TKL": "#7A2682"  // 將軍澳線 - 紫色
+            "TWL": "#E2231A", 
+            "TKL": "#7A2682"  
         };
 
-        // 1. 初始化資料加載（加入將軍澳線 GeoJSON）
         Promise.all([
             fetch('/路線軌道檔/Track.TsuenWanLine.geojson').then(res => res.json()),
             fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94%2FTrack.TseungKwanOLine.geojson').then(res => res.json()),
@@ -71,12 +69,9 @@
             fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94%2FTravelTimeConfig.json').then(res => res.json()).catch(() => null)
         ]).then(([twlTrack, tklTrack, stationData, timeConfig]) => {
 
-            // 合併軌道數據
             trackFeatures = [...twlTrack.features, ...tklTrack.features];
 
-            // 繪製荃灣線軌道
             L.geoJSON(twlTrack, { style: { color: LINE_COLORS['TWL'], weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
-            // 繪製將軍澳線軌道
             L.geoJSON(tklTrack, { style: { color: LINE_COLORS['TKL'], weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
 
             if (timeConfig && timeConfig.travel_times) {
@@ -85,18 +80,16 @@
                 });
             }
 
-            // 載入車站並動態綁定路線屬性
             L.geoJSON(stationData, {
                 filter: f => (f.properties.StationCode || f.properties.station_code || "") !== "NIL",
                 pointToLayer: function (feature, latlng) {
                     var props = feature.properties;
                     var staCode = (props.StationCode || props.station_code).toUpperCase();
-                    var lineStr = props.Line || props.line || "TWL"; // 讀取 GeoJSON 中的線路標記 (例如 "TWL", "TKL" 或 "TWL,ISL")
+                    var lineStr = props.Line || props.line || "TWL"; 
                     
                     stationCoords[staCode] = [latlng.lat, latlng.lng];
                     stationLineMapping[staCode] = lineStr.split(',').map(s => s.trim().toUpperCase());
 
-                    // 車站外框顏色：如果是多線轉車站則用黑色，否則用該線顏色
                     var strokeColor = (stationLineMapping[staCode].length > 1) ? '#000000' : LINE_COLORS[stationLineMapping[staCode][0]] || '#000000';
 
                     var outerMarker = L.circleMarker(latlng, { radius: 6, color: strokeColor, fillColor: '#ffffff', fillOpacity: 1, weight: 2.5, pane: 'stationPane' }).addTo(map);
@@ -119,7 +112,6 @@
         }).catch(err => console.error("系統多路線初始化失敗:", err));
 
 
-        // 2. 主事件分析監聽器 (相容多路線與分支)
         function processTrainSchedules() {
             fetch('/api/live')
                 .then(res => res.json())
@@ -132,11 +124,11 @@
 
                     trainData.forEach(train => {
                         var line = train.line.toUpperCase();
-                        if (line !== "TWL" && line !== "TKL") return; // 只處理已實現的路線
+                        if (line !== "TWL" && line !== "TKL") return; 
 
                         var currentSta = train.station.toUpperCase();
                         var dir = train.direction;
-                        var key = `${line}_${currentSta}_${dir}`; // 鍵值加入 line 區分轉車站
+                        var key = `${line}_${currentSta}_${dir}`; 
 
                         if (!stationSchedules[currentSta]) stationSchedules[currentSta] = [];
                         stationSchedules[currentSta].push(train);
@@ -154,9 +146,8 @@
                         var currentTtnt = parseInt(currentTrain.ttnt);
                         var currentSta = currentTrain.station.toUpperCase(); 
                         var dir = currentTrain.direction;
-                        var dest = currentTrain.dest.toUpperCase();
+                        var dest = currentTrain.dest || "";
 
-                        // 🎯 傳入 dest 參數以計算將軍澳線的分支前置站
                         var prevSta = getPreviousStation(currentSta, dir, line, dest); 
                         var trainId = `${line}_${dir}_${prevSta}_${currentSta}`;
 
@@ -187,7 +178,6 @@
                         lastStationState[key] = currentTrain;
                     });
 
-                    // 更新月台氣泡 (支援多路線動態倒數)
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
@@ -199,7 +189,6 @@
                         if (schedules.length === 0) {
                             popupContent += `<span style="color:#888;font-size:12px;">暫無實時列車即將進站</span>`;
                         } else {
-                            // 按路線群組
                             var linesInStation = stationLineMapping[staCode] || ["TWL"];
                             linesInStation.forEach(l => {
                                 var lineScheds = schedules.filter(t => t.line.toUpperCase() === l);
@@ -207,7 +196,6 @@
 
                                 popupContent += `<div style="font-weight:bold;color:${LINE_COLORS[l]};font-size:12px;margin-top:5px;">● ${l === 'TWL' ? '荃灣線' : '將軍澳線'}:</div>`;
                                 
-                                // 分拆各方向並排序找首班車
                                 var dirs = [...new Set(lineScheds.map(t => t.direction))];
                                 dirs.forEach(d => {
                                     var dirScheds = lineScheds.filter(t => t.direction === d).sort((a,b) => parseInt(a.ttnt) - parseInt(b.ttnt));
@@ -233,7 +221,6 @@
             if (activeTrains[oldTrainId]) activeTrains[oldTrainId].destroy();
         }
 
-        // 3. 虛擬列車狀態機類別 (支援動態外框顏色)
         class VirtualTrain {
             constructor(fromSta, toSta, direction, dest, line, isPreSpawn = false) {
                 this.fromSta = fromSta;
@@ -244,7 +231,16 @@
                 this.id = `${line}_${direction}_${fromSta}_${toSta}`;
 
                 var geojsonDataDir = (direction === "UP") ? "Up" : "Down";
-                this.trackFeature = trackFeatures.find(f => f.properties.line === line && f.properties.direction === geojsonDataDir && f.properties.from === fromSta && f.properties.to === toSta);
+                
+                // 修正：兼容 GeoJSON 屬性名大小寫
+                this.trackFeature = trackFeatures.find(f => {
+                    var fLine = (f.properties.line || f.properties.Line || "").toUpperCase();
+                    var fDir = (f.properties.direction || f.properties.Direction || "");
+                    var fFrom = (f.properties.from || f.properties.From || "").toUpperCase();
+                    var fTo = (f.properties.to || f.properties.To || "").toUpperCase();
+                    return fLine === line && fDir === geojsonDataDir && fFrom === fromSta && fTo === toSta;
+                });
+
                 if (!this.trackFeature) return;
                 this.coords = this.trackFeature.geometry.coordinates;
 
@@ -257,7 +253,6 @@
                 this.inCompensationZone = false;
                 this.timer = null;
 
-                // 🎯 套用路線代表顏色到火車點外框
                 var lineColor = LINE_COLORS[line] || "#E2231A";
                 this.iconElement = L.divIcon({ 
                     className: 'train-container', 
@@ -296,7 +291,7 @@
                 this.updatePopupText("正在減速進站...");
                 this.timer = setInterval(() => {
                     var elapsed = Date.now() - compStartTime;
-                    this.ratio = startRatio + (1.0 - startRatio) * (elapsed / 6000); // 6秒強制平滑補償進站
+                    this.ratio = startRatio + (1.0 - startRatio) * (elapsed / 6000); 
                     if (this.ratio >= 1.0) {
                         clearInterval(this.timer);
                         this.marker.setLatLng(this.spatialData.points[this.spatialData.points.length - 1]);
@@ -357,10 +352,9 @@
             if (!activeTrains[trainId]) activeTrains[trainId] = new VirtualTrain(fromSta, toSta, dir, dest, line, true);
         }
 
-        // 🎯 核心分支閉塞演算法：支援荃灣線線性與將軍澳線分叉
         const TWL_ORDER = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"];
-        const TKL_MAIN = ["NOP", "QUB", "YAT", "TIK", "TKO"]; // 將軍澳線共用核心段
 
+        // 🎯 完美修復：利用繁體中文目的地，精準演算閉塞區間前置站
         function getPreviousStation(nextSta, direction, line, dest) {
             if (line === "TWL") {
                 var index = TWL_ORDER.indexOf(nextSta); if (index === -1) return null;
@@ -368,13 +362,13 @@
             }
             
             if (line === "TKL") {
-                // 下行（往北角方向：匯合邏輯）
                 if (direction === "DOWN") {
                     if (nextSta === "HAH") return "POA";
-                    if (nextSta === "LHP") return null; // 康城單線
+                    if (nextSta === "LHP") return null; 
                     if (nextSta === "TKO") {
-                        // 將軍澳站的前一站取決於當前是哪裡來的車，或者默認坑口/康城
-                        return (dest === "NOP" || dest === "QUB") ? "HAH" : "HAH"; // 簡化或動態判斷
+                        // 康城開出往北角/調景嶺的車，前一站是康城(LHP)；寶琳開出則是坑口(HAH)
+                        if (dest.includes("康城")) return "LHP"; 
+                        return "HAH"; 
                     }
                     if (nextSta === "TIK") return "TKO";
                     if (nextSta === "YAT") return "TIK";
@@ -382,7 +376,32 @@
                     if (nextSta === "NOP") return "QUB";
                 }
                 
-                // 上行（往寶琳/康城方向：分支邏輯）
                 if (direction === "UP") {
                     if (nextSta === "QUB") return "NOP";
-              
+                    if (nextSta === "YAT") return "QUB";
+                    if (nextSta === "TIK") return "YAT";
+                    if (nextSta === "TKO") return "TIK";
+                    
+                    // 分支核心：根據列車目的地（dest）決定前一站
+                    if (nextSta === "HAH") return "TKO";
+                    if (nextSta === "POA") return "HAH";
+                    if (nextSta === "LHP") return "TKO"; 
+                }
+            }
+            return null;
+        }
+
+        function isFirstTrackSegment(nextSta, dir, line) {
+            if (line === "TWL") return (dir === "UP" && nextSta === "ADM") || (dir === "DOWN" && nextSta === "TWH");
+            if (line === "TKL") return (dir === "UP" && nextSta === "QUB") || (dir === "DOWN" && (nextSta === "HAH" || nextSta === "LHP"));
+            return false;
+        }
+
+        function isTerminus(sta, dir, line) {
+            if (line === "TWL") return (dir === "UP" && sta === "TSW") || (dir === "DOWN" && sta === "CEN");
+            if (line === "TKL") return (dir === "UP" && (sta === "POA" || sta === "LHP")) || (dir === "DOWN" && sta === "NOP");
+            return false;
+        }
+    </script>
+</body>
+</html>
