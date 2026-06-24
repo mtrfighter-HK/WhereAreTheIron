@@ -2,7 +2,7 @@
 <html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
-    <title>MTR 實時列車地圖 - 訊號閉塞修正版</title>
+    <title>MTR 實時列車地圖 - 多路線分支版</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
@@ -22,27 +22,13 @@
         .leaflet-tooltip-left::before, .leaflet-tooltip-right::before,
         .leaflet-tooltip-top::before, .leaflet-tooltip-bottom::before { display: none !important; }
 
-        /* 【修復 5 & 6】常規巡航列車點：解決橢圓問題，並加上 pointer-events: none 穿透點擊車站 */
         .train-container {
             width: 12px !important; height: 12px !important; display: flex; align-items: center; justify-content: center;
-            pointer-events: none; /* 🎯 讓鼠標/手指穿透火車點，直達車站 */
+            pointer-events: none; /* 點擊穿透 */
         }
         .train-dot {
-            width: 10px !important; height: 10px !important; background-color: #ffffff; border: 2px solid #E2231A; 
-            border-radius: 50% !important; box-sizing: border-box;
-            box-shadow: 0 0 3px rgba(0,0,0,0.3); display: block;
-        }
-
-        /* 延誤閃爍動畫：同樣確保正圓與穿透 */
-        .train-dot-delayed {
-            width: 10px !important; height: 10px !important; background-color: #ffcc00; border: 2px solid #cc9900; 
-            border-radius: 50% !important; box-sizing: border-box; display: block;
-            box-shadow: 0 0 8px #ffcc00;
-            animation: mtrTrainPulse 0.8s infinite alternate;
-        }
-        @keyframes mtrTrainPulse {
-            0% { transform: scale(0.8); opacity: 0.5; }
-            100% { transform: scale(1.3); opacity: 1; }
+            width: 10px !important; height: 10px !important; background-color: #ffffff; border-radius: 50% !important; 
+            box-sizing: border-box; box-shadow: 0 0 3px rgba(0,0,0,0.3); display: block;
         }
     </style>
 </head>
@@ -53,33 +39,45 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        var map = L.map('map').setView([22.321, 114.170], 12.5);
+        var map = L.map('map').setView([22.315, 114.200], 12.5); // 微調中心點以同時看見兩線
 
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; OpenStreetMap &copy; CARTO'
         }).addTo(map);
 
-        // 🎯 【調整圖層 z-index】讓車站（550）永遠高於火車（500），雙重保障點擊
         map.createPane('trackPane').style.zIndex = 450;   
         map.createPane('trainPane').style.zIndex = 500;   
         map.createPane('stationPane').style.zIndex = 550; 
 
         var stationCoords = {}; 
         var stationLayers = {}; 
+        var stationLineMapping = {}; // 記錄車站屬於哪條線，支援轉車站
         var trackFeatures = []; 
         var travelTimeConfig = {}; 
         var lastStationState = {}; 
         var activeTrains = {}; 
 
-        // 1. 初始化資料加載
+        // 🎯 路線顏色配置
+        const LINE_COLORS = {
+            "TWL": "#E2231A", // 荃灣線 - 紅色
+            "TKL": "#7A2682"  // 將軍澳線 - 紫色
+        };
+
+        // 1. 初始化資料加載（加入將軍澳線 GeoJSON）
         Promise.all([
             fetch('/路線軌道檔/Track.TsuenWanLine.geojson').then(res => res.json()),
+            fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94%2FTrack.TseungKwanOLine.geojson').then(res => res.json()),
             fetch('/系統基本檔/StationLocation_2026_06.geojson').then(res => res.json()),
             fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94%2FTravelTimeConfig.json').then(res => res.json()).catch(() => null)
-        ]).then(([trackData, stationData, timeConfig]) => {
+        ]).then(([twlTrack, tklTrack, stationData, timeConfig]) => {
 
-            trackFeatures = trackData.features;
-            L.geoJSON(trackData, { style: { color: '#E2231A', weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
+            // 合併軌道數據
+            trackFeatures = [...twlTrack.features, ...tklTrack.features];
+
+            // 繪製荃灣線軌道
+            L.geoJSON(twlTrack, { style: { color: LINE_COLORS['TWL'], weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
+            // 繪製將軍澳線軌道
+            L.geoJSON(tklTrack, { style: { color: LINE_COLORS['TKL'], weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
 
             if (timeConfig && timeConfig.travel_times) {
                 timeConfig.travel_times.forEach(t => {
@@ -87,13 +85,21 @@
                 });
             }
 
+            // 載入車站並動態綁定路線屬性
             L.geoJSON(stationData, {
                 filter: f => (f.properties.StationCode || f.properties.station_code || "") !== "NIL",
                 pointToLayer: function (feature, latlng) {
                     var props = feature.properties;
                     var staCode = (props.StationCode || props.station_code).toUpperCase();
+                    var lineStr = props.Line || props.line || "TWL"; // 讀取 GeoJSON 中的線路標記 (例如 "TWL", "TKL" 或 "TWL,ISL")
+                    
                     stationCoords[staCode] = [latlng.lat, latlng.lng];
-                    var outerMarker = L.circleMarker(latlng, { radius: 6, color: '#000000', fillColor: '#ffffff', fillOpacity: 1, weight: 2.5, pane: 'stationPane' }).addTo(map);
+                    stationLineMapping[staCode] = lineStr.split(',').map(s => s.trim().toUpperCase());
+
+                    // 車站外框顏色：如果是多線轉車站則用黑色，否則用該線顏色
+                    var strokeColor = (stationLineMapping[staCode].length > 1) ? '#000000' : LINE_COLORS[stationLineMapping[staCode][0]] || '#000000';
+
+                    var outerMarker = L.circleMarker(latlng, { radius: 6, color: strokeColor, fillColor: '#ffffff', fillOpacity: 1, weight: 2.5, pane: 'stationPane' }).addTo(map);
                     L.circleMarker(latlng, { radius: 2, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, weight: 1, pane: 'stationPane' }).addTo(map);
                     stationLayers[staCode] = outerMarker; 
                     return outerMarker; 
@@ -110,10 +116,10 @@
             processTrainSchedules();
             setInterval(processTrainSchedules, 10000);
 
-        }).catch(err => console.error("系統初始化失敗:", err));
+        }).catch(err => console.error("系統多路線初始化失敗:", err));
 
 
-        // 2. 主事件分析監聽器
+        // 2. 主事件分析監聽器 (相容多路線與分支)
         function processTrainSchedules() {
             fetch('/api/live')
                 .then(res => res.json())
@@ -125,10 +131,12 @@
                     var stationSchedules = {};
 
                     trainData.forEach(train => {
-                        if (train.line !== "TWL") return;
+                        var line = train.line.toUpperCase();
+                        if (line !== "TWL" && line !== "TKL") return; // 只處理已實現的路線
+
                         var currentSta = train.station.toUpperCase();
                         var dir = train.direction;
-                        var key = `${currentSta}_${dir}`;
+                        var key = `${line}_${currentSta}_${dir}`; // 鍵值加入 line 區分轉車站
 
                         if (!stationSchedules[currentSta]) stationSchedules[currentSta] = [];
                         stationSchedules[currentSta].push(train);
@@ -142,55 +150,44 @@
                         var currentTrain = currentGroup[key];
                         var lastTrain = lastStationState[key];
 
+                        var line = currentTrain.line.toUpperCase();
                         var currentTtnt = parseInt(currentTrain.ttnt);
                         var currentSta = currentTrain.station.toUpperCase(); 
                         var dir = currentTrain.direction;
-                        var prevSta = getPreviousStation(currentSta, dir); 
+                        var dest = currentTrain.dest.toUpperCase();
 
-                        var trainId = `${dir}_${prevSta}_${currentSta}`;
+                        // 🎯 傳入 dest 參數以計算將軍澳線的分支前置站
+                        var prevSta = getPreviousStation(currentSta, dir, line, dest); 
+                        var trainId = `${line}_${dir}_${prevSta}_${currentSta}`;
 
                         if (lastTrain) {
                             var lastTtnt = parseInt(lastTrain.ttnt);
-
-                            // 【修復 3：發車訊號與清空機制】
-                            if ((lastTtnt === 0 && currentTtnt > 0) || (isTerminus(currentSta, dir) && currentTtnt > lastTtnt)) {
+                            if ((lastTtnt === 0 && currentTtnt > 0) || (isTerminus(currentSta, dir, line) && currentTtnt > lastTtnt)) {
                                 if (prevSta) {
-                                    // 確保徹底消滅上一個閉塞區間滯留的舊車點，杜絕重複疊加
-                                    clearPreviousBlockTrain(prevSta, dir);
-                                    console.log(`🚀 [發車] 區間: ${prevSta} ➔ ${currentSta}`);
-                                    launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest);
+                                    clearPreviousBlockTrain(prevSta, dir, line);
+                                    launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line);
                                 }
                             }
                         } else {
-                            // 熱身同步機制
                             if (prevSta && !activeTrains[trainId]) {
                                 if (currentTtnt === 2 || currentTtnt === 3) {
-                                    console.log(`⏱️ [熱身同步] 注入行駛區間: ${prevSta} ➔ ${currentSta} (ttnt: ${currentTtnt})`);
-                                    launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest);
-                                } else if (isFirstTrackSegment(currentSta, dir) && currentTtnt === 1) {
-                                    // 【修復 4】起點發車待命狀態
-                                    console.log(`靜態月台預生成: ${prevSta}`);
-                                    spawnStationTrain(prevSta, currentSta, dir, currentTrain.dest);
+                                    launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line);
+                                } else if (isFirstTrackSegment(currentSta, dir, line) && currentTtnt === 1) {
+                                    spawnStationTrain(prevSta, currentSta, dir, currentTrain.dest, line);
                                 }
                             }
                         }
 
-                        // 【修復 2：誤差補償臨界值重組】
                         if (activeTrains[trainId]) {
                             var runningTrain = activeTrains[trainId];
-
-                            if (currentTtnt === 0) {
-                                // 當下一站 ttnt 到達 0，不論現在在哪，立刻啟動平滑加速進站補償
-                                if (!runningTrain.inCompensationZone) {
-                                    runningTrain.enterCompensation(runningTrain.ratio); 
-                                }
+                            if (currentTtnt === 0 && !runningTrain.inCompensationZone) {
+                                runningTrain.enterCompensation(runningTrain.ratio); 
                             }
                         }
-
                         lastStationState[key] = currentTrain;
                     });
 
-                    // 更新月台氣泡
+                    // 更新月台氣泡 (支援多路線動態倒數)
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
@@ -198,64 +195,60 @@
                         var staName = tooltip ? tooltip.getContent() : staCode;
 
                         var popupContent = `<b>${staName} (${staCode})</b><br><hr style="border:0;border-top:1px solid #ccc;margin:5px 0;">`;
+                        
                         if (schedules.length === 0) {
                             popupContent += `<span style="color:#888;font-size:12px;">暫無實時列車即將進站</span>`;
                         } else {
-                            var upTrains = schedules.filter(t => t.direction === 'UP');
-                            var downTrains = schedules.filter(t => t.direction === 'DOWN');
+                            // 按路線群組
+                            var linesInStation = stationLineMapping[staCode] || ["TWL"];
+                            linesInStation.forEach(l => {
+                                var lineScheds = schedules.filter(t => t.line.toUpperCase() === l);
+                                if (lineScheds.length === 0) return;
 
-                            var nextUpTrain = upTrains.sort((a, b) => parseInt(a.ttnt) - parseInt(b.ttnt))[0];
-                            var nextDownTrain = downTrains.sort((a, b) => parseInt(a.ttnt) - parseInt(b.ttnt))[0];
-
-                            if (nextUpTrain) {
-                                var upTtnt = parseInt(nextUpTrain.ttnt);
-                                var upText = (upTtnt === 0) ? `<span style="color:green;font-weight:bold;">列車進站中</span>` : `<span style="color:#E2231A;font-weight:bold;">${upTtnt}</span> 分鐘後`;
-                                popupContent += `<div style="font-size:12px;margin:3px 0;">• <b>往荃灣</b>: ${upText}</div>`;
-                            } else {
-                                popupContent += `<div style="font-size:12px;margin:3px 0;color:#999;">• <b>往荃灣</b>: 暫無班次數據</div>`;
-                            }
-
-                            if (nextDownTrain) {
-                                var downTtnt = parseInt(nextDownTrain.ttnt);
-                                var downText = (downTtnt === 0) ? `<span style="color:green;font-weight:bold;">列車進站中</span>` : `<span style="color:#E2231A;font-weight:bold;">${downTtnt}</span> 分鐘後`;
-                                popupContent += `<div style="font-size:12px;margin:3px 0;">• <b>往中環</b>: ${downText}</div>`;
-                            } else {
-                                popupContent += `<div style="font-size:12px;margin:3px 0;color:#999;">• <b>往中環</b>: 暫無班次數據</div>`;
-                            }
+                                popupContent += `<div style="font-weight:bold;color:${LINE_COLORS[l]};font-size:12px;margin-top:5px;">● ${l === 'TWL' ? '荃灣線' : '將軍澳線'}:</div>`;
+                                
+                                // 分拆各方向並排序找首班車
+                                var dirs = [...new Set(lineScheds.map(t => t.direction))];
+                                dirs.forEach(d => {
+                                    var dirScheds = lineScheds.filter(t => t.direction === d).sort((a,b) => parseInt(a.ttnt) - parseInt(b.ttnt));
+                                    if (dirScheds.length > 0) {
+                                        var firstTrain = dirScheds[0];
+                                        var ttntVal = parseInt(firstTrain.ttnt);
+                                        var ttntText = (ttntVal === 0) ? `<span style="color:green;font-weight:bold;">列車進站中</span>` : `<span style="color:${LINE_COLORS[l]};font-weight:bold;">${ttntVal}</span> 分鐘後`;
+                                        popupContent += `<div style="font-size:12px;margin-left:8px;">• 往 ${firstTrain.dest}: ${ttntText}</div>`;
+                                    }
+                                });
+                            });
                         }
                         marker.setPopupContent(popupContent);
                     });
                 });
         }
 
-        function clearPreviousBlockTrain(currentLaunchStation, direction) {
-            var prevPrevSta = getPreviousStation(currentLaunchStation, direction === "UP" ? "DOWN" : "UP"); 
+        function clearPreviousBlockTrain(currentLaunchStation, direction, line) {
+            var oppDir = (direction === "UP") ? "DOWN" : "UP";
+            var prevPrevSta = getPreviousStation(currentLaunchStation, oppDir, line, ""); 
             if (!prevPrevSta) return;
-            var oldTrainId = `${direction}_${prevPrevSta}_${currentLaunchStation}`;
-            if (activeTrains[oldTrainId]) {
-                activeTrains[oldTrainId].destroy();
-            }
+            var oldTrainId = `${line}_${direction}_${prevPrevSta}_${currentLaunchStation}`;
+            if (activeTrains[oldTrainId]) activeTrains[oldTrainId].destroy();
         }
 
-
-        // 3. 虛擬列車狀態機類別
+        // 3. 虛擬列車狀態機類別 (支援動態外框顏色)
         class VirtualTrain {
-            constructor(fromSta, toSta, direction, dest, isPreSpawn = false) {
+            constructor(fromSta, toSta, direction, dest, line, isPreSpawn = false) {
                 this.fromSta = fromSta;
                 this.toSta = toSta;
                 this.direction = direction;
                 this.dest = dest;
-                this.id = `${direction}_${fromSta}_${toSta}`;
-                this.isDelayed = false;
+                this.line = line;
+                this.id = `${line}_${direction}_${fromSta}_${toSta}`;
 
                 var geojsonDataDir = (direction === "UP") ? "Up" : "Down";
-                this.trackFeature = trackFeatures.find(f => f.properties.direction === geojsonDataDir && f.properties.from === fromSta && f.properties.to === toSta);
+                this.trackFeature = trackFeatures.find(f => f.properties.line === line && f.properties.direction === geojsonDataDir && f.properties.from === fromSta && f.properties.to === toSta);
                 if (!this.trackFeature) return;
                 this.coords = this.trackFeature.geometry.coordinates;
 
-                // 【修復 1】計算軌道段的真實地理距離與等分緩存
                 this.spatialData = precomputeTrackDistances(this.coords);
-
                 var timeKey = `${fromSta}_${toSta}`;
                 this.totalDuration = (travelTimeConfig[timeKey] || 110) * 1000; 
 
@@ -264,77 +257,49 @@
                 this.inCompensationZone = false;
                 this.timer = null;
 
+                // 🎯 套用路線代表顏色到火車點外框
+                var lineColor = LINE_COLORS[line] || "#E2231A";
                 this.iconElement = L.divIcon({ 
                     className: 'train-container', 
-                    html: '<div class="train-dot" id="dot_' + this.id + '"></div>', 
+                    html: `<div class="train-dot" id="dot_${this.id}" style="border: 2px solid ${lineColor};"></div>`, 
                     iconSize: [12, 12], 
                     iconAnchor: [6, 6] 
                 });
 
-                // 初始化放置在 0% 起始點
-                var startLatLng = this.spatialData.points[0];
-                this.marker = L.marker(startLatLng, { icon: this.iconElement, pane: 'trainPane' }).addTo(map);
+                this.marker = L.marker(this.spatialData.points[0], { icon: this.iconElement, pane: 'trainPane' }).addTo(map);
                 this.updatePopupText("自動巡航中");
 
-                if (!isPreSpawn) {
-                    this.startCruise();
-                } else {
-                    this.updatePopupText("始發月台待命");
-                }
+                if (!isPreSpawn) { this.startCruise(); } else { this.updatePopupText("始發月台待命"); }
             }
 
             updatePopupText(statusHtml) {
-                var delayNotice = this.isDelayed ? `<br><span style="color:orange;font-weight:bold;">⚠️ 列車稍為延遲</span>` : '';
-                this.marker.bindPopup(`<b>目的地:</b> ${this.dest}<br><b>區間:</b> ${this.fromSta} ➔ ${this.toSta}<br><b>狀態:</b> ${statusHtml}${delayNotice}`);
+                this.marker.bindPopup(`<b>路線:</b> ${this.line}<br><b>目的地:</b> ${this.dest}<br><b>區間:</b> ${this.fromSta} ➔ ${this.toSta}<br><b>狀態:</b> ${statusHtml}`);
             }
 
             startCruise() {
                 if (this.timer) clearInterval(this.timer);
-                this.isDelayed = false;
                 this.startTime = Date.now();
-
                 this.timer = setInterval(() => {
                     var elapsed = Date.now() - this.startTime;
-                    var currentProgress = elapsed / this.totalDuration;
-                    
-                    // 【修復 2】取消 0.90 上限，允許正常平滑移動到 1.0 (100%)
-                    this.ratio = Math.min(1.0, currentProgress);
-
-                    // 【修復 1】使用真實地理距離等分點更新坐標，解決速度忽快忽慢問題
+                    this.ratio = Math.min(1.0, elapsed / this.totalDuration);
                     var latlng = interpolateByTrueDistance(this.spatialData, this.ratio);
                     if (latlng) this.marker.setLatLng(latlng);
-
-                    if (this.ratio >= 1.0) {
-                        clearInterval(this.timer);
-                        this.arrive();
-                    }
+                    if (this.ratio >= 1.0) { clearInterval(this.timer); this.arrive(); }
                 }, 1000);
             }
 
             enterCompensation(startRatio = 0.0) {
                 this.inCompensationZone = true;
-                this.isDelayed = false;
                 if (this.timer) clearInterval(this.timer);
-
-                var innerDot = document.getElementById('dot_' + this.id);
-                if (innerDot) innerDot.className = 'train-dot';
-
                 this.ratio = startRatio;
                 var compStartTime = Date.now();
-                var compDuration = 6000; // 🎯 6秒內快速且流暢地強制進站到 100%
-
                 this.updatePopupText("正在減速進站...");
-
                 this.timer = setInterval(() => {
                     var elapsed = Date.now() - compStartTime;
-                    var compProgress = elapsed / compDuration; 
-
-                    this.ratio = startRatio + (1.0 - startRatio) * compProgress;
-
+                    this.ratio = startRatio + (1.0 - startRatio) * (elapsed / 6000); // 6秒強制平滑補償進站
                     if (this.ratio >= 1.0) {
                         clearInterval(this.timer);
-                        var lastPt = this.spatialData.points[this.spatialData.points.length - 1];
-                        this.marker.setLatLng(lastPt);
+                        this.marker.setLatLng(this.spatialData.points[this.spatialData.points.length - 1]);
                         this.arrive(); 
                     } else {
                         var latlng = interpolateByTrueDistance(this.spatialData, this.ratio);
@@ -344,8 +309,8 @@
             }
 
             arrive() {
-                this.updatePopupText("<span style='color:#E2231A;font-weight:bold;'>列車已進站 / 正在上落客</span>");
-                if (isTerminus(this.toSta, this.direction)) {
+                this.updatePopupText("<span style='color:green;font-weight:bold;'>列車已進站 / 正在上落客</span>");
+                if (isTerminus(this.toSta, this.direction, this.line)) {
                     setTimeout(() => { this.destroy(); }, 20000);
                 }
             }
@@ -357,87 +322,67 @@
             }
         }
 
-        // 【修復 1】核心數學公式：預先計算 GeoJSON 的真實地理距離
         function precomputeTrackDistances(coords) {
-            var points = coords.map(c => [c[1], c[0]]); // 轉為 [lat, lng]
-            var distances = [0];
-            var totalDist = 0;
-
+            var points = coords.map(c => [c[1], c[0]]);
+            var distances = [0]; var totalDist = 0;
             for (var i = 0; i < points.length - 1; i++) {
-                var d = L.latLng(points[i]).distanceTo(L.latLng(points[i+1]));
-                totalDist += d;
+                totalDist += L.latLng(points[i]).distanceTo(L.latLng(points[i+1]));
                 distances.push(totalDist);
             }
             return { points: points, distances: distances, totalDistance: totalDist };
         }
 
-        // 【修復 1】核心數學公式：根據實際米數距離比例，進行線性插值，確保勻速前進
         function interpolateByTrueDistance(spatialData, ratio) {
             var targetDist = spatialData.totalDistance * ratio;
-            var dists = spatialData.distances;
-            var pts = spatialData.points;
-
+            var dists = spatialData.distances; var pts = spatialData.points;
             if (targetDist <= 0) return pts[0];
             if (targetDist >= spatialData.totalDistance) return pts[pts.length - 1];
-
-            // 尋找當前所在的實際線段
             for (var i = 0; i < dists.length - 1; i++) {
                 if (targetDist >= dists[i] && targetDist <= dists[i+1]) {
-                    var segDist = dists[i+1] - dists[i];
-                    if (segDist === 0) return pts[i];
-                    var segRatio = (targetDist - dists[i]) / segDist;
-                    
-                    var p1 = pts[i];
-                    var p2 = pts[i+1];
-                    return [
-                        p1[0] + (p2[0] - p1[0]) * segRatio,
-                        p1[1] + (p2[1] - p1[1]) * segRatio
-                    ];
+                    var segRatio = (targetDist - dists[i]) / (dists[i+1] - dists[i]);
+                    return [pts[i][0] + (pts[i+1][0] - pts[i][0]) * segRatio, pts[i][1] + (pts[i+1][1] - pts[i][1]) * segRatio];
                 }
             }
             return pts[pts.length - 1];
         }
 
-        // 工具組件
-        function launchVirtualTrain(fromSta, toSta, dir, dest) {
-            var trainId = `${dir}_${fromSta}_${toSta}`;
-            // 【修復 3】如果該區間已經有待命或老車，先徹底移除，不允許生成第二輛，徹底消滅鬼車
-            if (activeTrains[trainId]) {
-                activeTrains[trainId].destroy();
-            }
-            activeTrains[trainId] = new VirtualTrain(fromSta, toSta, dir, dest, false);
+        function launchVirtualTrain(fromSta, toSta, dir, dest, line) {
+            var trainId = `${line}_${dir}_${fromSta}_${toSta}`;
+            if (activeTrains[trainId]) activeTrains[trainId].destroy();
+            activeTrains[trainId] = new VirtualTrain(fromSta, toSta, dir, dest, line, false);
         }
 
-        function spawnStationTrain(fromSta, toSta, dir, dest) {
-            var trainId = `${dir}_${fromSta}_${toSta}`;
-            if (!activeTrains[trainId]) {
-                activeTrains[trainId] = new VirtualTrain(fromSta, toSta, dir, dest, true);
-            }
+        function spawnStationTrain(fromSta, toSta, dir, dest, line) {
+            var trainId = `${line}_${dir}_${fromSta}_${toSta}`;
+            if (!activeTrains[trainId]) activeTrains[trainId] = new VirtualTrain(fromSta, toSta, dir, dest, line, true);
         }
 
+        // 🎯 核心分支閉塞演算法：支援荃灣線線性與將軍澳線分叉
         const TWL_ORDER = ["CEN", "ADM", "TST", "JOR", "YMT", "MOK", "PRE", "SSP", "CSW", "LCK", "MEF", "LAK", "KWF", "KWH", "TWH", "TSW"];
+        const TKL_MAIN = ["NOP", "QUB", "YAT", "TIK", "TKO"]; // 將軍澳線共用核心段
 
-        function getPreviousStation(nextSta, direction) {
-            var index = TWL_ORDER.indexOf(nextSta);
-            if (index === -1) return null;
-            if (direction === 'UP') { 
-                if (index > 0) return TWL_ORDER[index - 1];
+        function getPreviousStation(nextSta, direction, line, dest) {
+            if (line === "TWL") {
+                var index = TWL_ORDER.indexOf(nextSta); if (index === -1) return null;
+                return (direction === 'UP') ? (index > 0 ? TWL_ORDER[index - 1] : null) : (index < TWL_ORDER.length - 1 ? TWL_ORDER[index + 1] : null);
             }
-            if (direction === 'DOWN') { 
-                if (index < TWL_ORDER.length - 1) return TWL_ORDER[index + 1];
-            }
-            return null;
-        }
-
-        function isFirstTrackSegment(nextSta, dir) {
-            if (dir === "UP" && nextSta === "ADM") return true; 
-            if (dir === "DOWN" && nextSta === "TWH") return true; 
-            return false;
-        }
-
-        function isTerminus(sta, dir) {
-            return (dir === "UP" && sta === "TSW") || (dir === "DOWN" && sta === "CEN");
-        }
-    </script>
-</body>
-</html>
+            
+            if (line === "TKL") {
+                // 下行（往北角方向：匯合邏輯）
+                if (direction === "DOWN") {
+                    if (nextSta === "HAH") return "POA";
+                    if (nextSta === "LHP") return null; // 康城單線
+                    if (nextSta === "TKO") {
+                        // 將軍澳站的前一站取決於當前是哪裡來的車，或者默認坑口/康城
+                        return (dest === "NOP" || dest === "QUB") ? "HAH" : "HAH"; // 簡化或動態判斷
+                    }
+                    if (nextSta === "TIK") return "TKO";
+                    if (nextSta === "YAT") return "TIK";
+                    if (nextSta === "QUB") return "YAT";
+                    if (nextSta === "NOP") return "QUB";
+                }
+                
+                // 上行（往寶琳/康城方向：分支邏輯）
+                if (direction === "UP") {
+                    if (nextSta === "QUB") return "NOP";
+              
