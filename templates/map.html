@@ -22,18 +22,21 @@
         .leaflet-tooltip-left::before, .leaflet-tooltip-right::before,
         .leaflet-tooltip-top::before, .leaflet-tooltip-bottom::before { display: none !important; }
 
-        /* 【修復】常規巡航列車點：移除 transform transition 避免干擾 Leaflet 縮放 */
+        /* 【修復 5 & 6】常規巡航列車點：解決橢圓問題，並加上 pointer-events: none 穿透點擊車站 */
         .train-container {
-            width: 10px; height: 10px; display: flex; align-items: center; justify-content: center;
+            width: 12px !important; height: 12px !important; display: flex; align-items: center; justify-content: center;
+            pointer-events: none; /* 🎯 讓鼠標/手指穿透火車點，直達車站 */
         }
         .train-dot {
-            width: 8px; height: 8px; background-color: #ffffff; border: 2px solid #E2231A; border-radius: 50%;
-            box-shadow: 0 0 3px rgba(0,0,0,0.3);
+            width: 10px !important; height: 10px !important; background-color: #ffffff; border: 2px solid #E2231A; 
+            border-radius: 50% !important; box-sizing: border-box;
+            box-shadow: 0 0 3px rgba(0,0,0,0.3); display: block;
         }
 
-        /* 【修復】延誤閃爍動畫：只針對內層 div 縮放，絕不干擾 Leaflet Marker 外層 */
+        /* 延誤閃爍動畫：同樣確保正圓與穿透 */
         .train-dot-delayed {
-            width: 8px; height: 8px; background-color: #ffcc00; border: 2px solid #cc9900; border-radius: 50%;
+            width: 10px !important; height: 10px !important; background-color: #ffcc00; border: 2px solid #cc9900; 
+            border-radius: 50% !important; box-sizing: border-box; display: block;
             box-shadow: 0 0 8px #ffcc00;
             animation: mtrTrainPulse 0.8s infinite alternate;
         }
@@ -56,9 +59,10 @@
             attribution: '&copy; OpenStreetMap &copy; CARTO'
         }).addTo(map);
 
+        // 🎯 【調整圖層 z-index】讓車站（550）永遠高於火車（500），雙重保障點擊
         map.createPane('trackPane').style.zIndex = 450;   
-        map.createPane('stationPane').style.zIndex = 500; 
-        map.createPane('trainPane').style.zIndex = 550;   
+        map.createPane('trainPane').style.zIndex = 500;   
+        map.createPane('stationPane').style.zIndex = 550; 
 
         var stationCoords = {}; 
         var stationLayers = {}; 
@@ -148,38 +152,37 @@
                         if (lastTrain) {
                             var lastTtnt = parseInt(lastTrain.ttnt);
 
-                            // 【發車訊號】
+                            // 【修復 3：發車訊號與清空機制】
                             if ((lastTtnt === 0 && currentTtnt > 0) || (isTerminus(currentSta, dir) && currentTtnt > lastTtnt)) {
                                 if (prevSta) {
+                                    // 確保徹底消滅上一個閉塞區間滯留的舊車點，杜絕重複疊加
                                     clearPreviousBlockTrain(prevSta, dir);
                                     console.log(`🚀 [發車] 區間: ${prevSta} ➔ ${currentSta}`);
                                     launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest);
                                 }
                             }
                         } else {
-                            // 【修復 Bug 1】熱身機制收窄判定條件，防止鬼車生成
+                            // 熱身同步機制
                             if (prevSta && !activeTrains[trainId]) {
                                 if (currentTtnt === 2 || currentTtnt === 3) {
                                     console.log(`⏱️ [熱身同步] 注入行駛區間: ${prevSta} ➔ ${currentSta} (ttnt: ${currentTtnt})`);
                                     launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest);
                                 } else if (isFirstTrackSegment(currentSta, dir) && currentTtnt === 1) {
-                                    console.log(`静态月台預生成: ${prevSta}`);
+                                    // 【修復 4】起點發車待命狀態
+                                    console.log(`靜態月台預生成: ${prevSta}`);
                                     spawnStationTrain(prevSta, currentSta, dir, currentTrain.dest);
                                 }
                             }
                         }
 
-                        // 【誤差補償與延誤監聽】
+                        // 【修復 2：誤差補償臨界值重組】
                         if (activeTrains[trainId]) {
                             var runningTrain = activeTrains[trainId];
 
-                            if (currentTtnt === 1 || currentTtnt === 0) {
-                                if (!runningTrain.inCompensationZone || runningTrain.isDelayed) {
+                            if (currentTtnt === 0) {
+                                // 當下一站 ttnt 到達 0，不論現在在哪，立刻啟動平滑加速進站補償
+                                if (!runningTrain.inCompensationZone) {
                                     runningTrain.enterCompensation(runningTrain.ratio); 
-                                }
-                            } else if (currentTtnt >= 2 && runningTrain.ratio >= 0.90 && !runningTrain.inCompensationZone) {
-                                if (!runningTrain.isDelayed) {
-                                    runningTrain.triggerDelay();
                                 }
                             }
                         }
@@ -187,9 +190,7 @@
                         lastStationState[key] = currentTrain;
                     });
 
-                    // ==========================================
-                    // 🎯 更新月台氣泡 (每個方向只顯示首班車)
-                    // ==========================================
+                    // 更新月台氣泡
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
@@ -200,15 +201,12 @@
                         if (schedules.length === 0) {
                             popupContent += `<span style="color:#888;font-size:12px;">暫無實時列車即將進站</span>`;
                         } else {
-                            // 1. 分拆上行(UP)與下行(DOWN)
                             var upTrains = schedules.filter(t => t.direction === 'UP');
                             var downTrains = schedules.filter(t => t.direction === 'DOWN');
 
-                            // 2. 排序找出 ttnt 最小的那班車 (最快進站的首班車)
                             var nextUpTrain = upTrains.sort((a, b) => parseInt(a.ttnt) - parseInt(b.ttnt))[0];
                             var nextDownTrain = downTrains.sort((a, b) => parseInt(a.ttnt) - parseInt(b.ttnt))[0];
 
-                            // 3. 渲染上行資料
                             if (nextUpTrain) {
                                 var upTtnt = parseInt(nextUpTrain.ttnt);
                                 var upText = (upTtnt === 0) ? `<span style="color:green;font-weight:bold;">列車進站中</span>` : `<span style="color:#E2231A;font-weight:bold;">${upTtnt}</span> 分鐘後`;
@@ -217,7 +215,6 @@
                                 popupContent += `<div style="font-size:12px;margin:3px 0;color:#999;">• <b>往荃灣</b>: 暫無班次數據</div>`;
                             }
 
-                            // 4. 渲染下行資料
                             if (nextDownTrain) {
                                 var downTtnt = parseInt(nextDownTrain.ttnt);
                                 var downText = (downTtnt === 0) ? `<span style="color:green;font-weight:bold;">列車進站中</span>` : `<span style="color:#E2231A;font-weight:bold;">${downTtnt}</span> 分鐘後`;
@@ -256,6 +253,9 @@
                 if (!this.trackFeature) return;
                 this.coords = this.trackFeature.geometry.coordinates;
 
+                // 【修復 1】計算軌道段的真實地理距離與等分緩存
+                this.spatialData = precomputeTrackDistances(this.coords);
+
                 var timeKey = `${fromSta}_${toSta}`;
                 this.totalDuration = (travelTimeConfig[timeKey] || 110) * 1000; 
 
@@ -264,15 +264,16 @@
                 this.inCompensationZone = false;
                 this.timer = null;
 
-                // 【修復 Bug 2】使用 HTML 包裹內層 div 圓點，確保縮放時定位完全由 Leaflet 接管，絕不飄移
                 this.iconElement = L.divIcon({ 
                     className: 'train-container', 
                     html: '<div class="train-dot" id="dot_' + this.id + '"></div>', 
-                    iconSize: [10, 10], 
-                    iconAnchor: [5, 5] 
+                    iconSize: [12, 12], 
+                    iconAnchor: [6, 6] 
                 });
 
-                this.marker = L.marker([this.coords[0][1], this.coords[0][0]], { icon: this.iconElement, pane: 'trainPane' }).addTo(map);
+                // 初始化放置在 0% 起始點
+                var startLatLng = this.spatialData.points[0];
+                this.marker = L.marker(startLatLng, { icon: this.iconElement, pane: 'trainPane' }).addTo(map);
                 this.updatePopupText("自動巡航中");
 
                 if (!isPreSpawn) {
@@ -295,44 +296,32 @@
                 this.timer = setInterval(() => {
                     var elapsed = Date.now() - this.startTime;
                     var currentProgress = elapsed / this.totalDuration;
-                    this.ratio = Math.min(0.90, currentProgress);
+                    
+                    // 【修復 2】取消 0.90 上限，允許正常平滑移動到 1.0 (100%)
+                    this.ratio = Math.min(1.0, currentProgress);
 
-                    var latlng = interpolateAlongLineString(this.coords, this.ratio);
+                    // 【修復 1】使用真實地理距離等分點更新坐標，解決速度忽快忽慢問題
+                    var latlng = interpolateByTrueDistance(this.spatialData, this.ratio);
                     if (latlng) this.marker.setLatLng(latlng);
 
-                    if (this.ratio >= 0.90 && !this.inCompensationZone && !this.isDelayed) {
-                        this.updatePopupText("接近車站，調速等待中");
+                    if (this.ratio >= 1.0) {
+                        clearInterval(this.timer);
+                        this.arrive();
                     }
                 }, 1000);
             }
 
-            // ⚠️ 修正延誤觸發：只改變內層 HTML 樣式，地圖縮放時絕不留喺原位
-            triggerDelay() {
-                this.isDelayed = true;
-                if (this.timer) clearInterval(this.timer); 
-
-                var innerDot = document.getElementById('dot_' + this.id);
-                if (innerDot) {
-                    innerDot.className = 'train-dot-delayed'; 
-                }
-                this.updatePopupText("<span style='color:orange;font-weight:bold;'>信號燈紅燈等待中</span>");
-            }
-
-            enterCompensation(startRatio = 0.90) {
+            enterCompensation(startRatio = 0.0) {
                 this.inCompensationZone = true;
                 this.isDelayed = false;
                 if (this.timer) clearInterval(this.timer);
 
-                // 🟢 已修正：將原本錯誤的 # 改為標準的 JS 雙斜線 // 
-                // 恢復為普通紅點
                 var innerDot = document.getElementById('dot_' + this.id);
-                if (innerDot) {
-                    innerDot.className = 'train-dot';
-                }
+                if (innerDot) innerDot.className = 'train-dot';
 
                 this.ratio = startRatio;
                 var compStartTime = Date.now();
-                var compDuration = 10000; 
+                var compDuration = 6000; // 🎯 6秒內快速且流暢地強制進站到 100%
 
                 this.updatePopupText("正在減速進站...");
 
@@ -344,10 +333,11 @@
 
                     if (this.ratio >= 1.0) {
                         clearInterval(this.timer);
-                        this.marker.setLatLng([this.coords[this.coords.length-1][1], this.coords[this.coords.length-1][0]]);
+                        var lastPt = this.spatialData.points[this.spatialData.points.length - 1];
+                        this.marker.setLatLng(lastPt);
                         this.arrive(); 
                     } else {
-                        var latlng = interpolateAlongLineString(this.coords, this.ratio);
+                        var latlng = interpolateByTrueDistance(this.spatialData, this.ratio);
                         if (latlng) this.marker.setLatLng(latlng);
                     }
                 }, 200); 
@@ -356,23 +346,64 @@
             arrive() {
                 this.updatePopupText("<span style='color:#E2231A;font-weight:bold;'>列車已進站 / 正在上落客</span>");
                 if (isTerminus(this.toSta, this.direction)) {
-                    setTimeout(() => { this.destroy(); }, 30000);
+                    setTimeout(() => { this.destroy(); }, 20000);
                 }
             }
 
             destroy() {
                 if (this.timer) clearInterval(this.timer);
-                map.removeLayer(this.marker);
+                if (this.marker) map.removeLayer(this.marker);
                 delete activeTrains[this.id];
             }
+        }
+
+        // 【修復 1】核心數學公式：預先計算 GeoJSON 的真實地理距離
+        function precomputeTrackDistances(coords) {
+            var points = coords.map(c => [c[1], c[0]]); // 轉為 [lat, lng]
+            var distances = [0];
+            var totalDist = 0;
+
+            for (var i = 0; i < points.length - 1; i++) {
+                var d = L.latLng(points[i]).distanceTo(L.latLng(points[i+1]));
+                totalDist += d;
+                distances.push(totalDist);
+            }
+            return { points: points, distances: distances, totalDistance: totalDist };
+        }
+
+        // 【修復 1】核心數學公式：根據實際米數距離比例，進行線性插值，確保勻速前進
+        function interpolateByTrueDistance(spatialData, ratio) {
+            var targetDist = spatialData.totalDistance * ratio;
+            var dists = spatialData.distances;
+            var pts = spatialData.points;
+
+            if (targetDist <= 0) return pts[0];
+            if (targetDist >= spatialData.totalDistance) return pts[pts.length - 1];
+
+            // 尋找當前所在的實際線段
+            for (var i = 0; i < dists.length - 1; i++) {
+                if (targetDist >= dists[i] && targetDist <= dists[i+1]) {
+                    var segDist = dists[i+1] - dists[i];
+                    if (segDist === 0) return pts[i];
+                    var segRatio = (targetDist - dists[i]) / segDist;
+                    
+                    var p1 = pts[i];
+                    var p2 = pts[i+1];
+                    return [
+                        p1[0] + (p2[0] - p1[0]) * segRatio,
+                        p1[1] + (p2[1] - p1[1]) * segRatio
+                    ];
+                }
+            }
+            return pts[pts.length - 1];
         }
 
         // 工具組件
         function launchVirtualTrain(fromSta, toSta, dir, dest) {
             var trainId = `${dir}_${fromSta}_${toSta}`;
-            if (activeTrains[trainId] && activeTrains[trainId].ratio === 0) {
-                activeTrains[trainId].startCruise();
-                return;
+            // 【修復 3】如果該區間已經有待命或老車，先徹底移除，不允許生成第二輛，徹底消滅鬼車
+            if (activeTrains[trainId]) {
+                activeTrains[trainId].destroy();
             }
             activeTrains[trainId] = new VirtualTrain(fromSta, toSta, dir, dest, false);
         }
@@ -388,37 +419,4 @@
 
         function getPreviousStation(nextSta, direction) {
             var index = TWL_ORDER.indexOf(nextSta);
-            if (index === -1) return null;
-            if (direction === 'UP') { 
-                if (index > 0) return TWL_ORDER[index - 1];
-            }
-            if (direction === 'DOWN') { 
-                if (index < TWL_ORDER.length - 1) return TWL_ORDER[index + 1];
-            }
-            return null;
-        }
-
-        function isFirstTrackSegment(nextSta, dir) {
-            if (dir === "UP" && nextSta === "ADM") return true; 
-            if (dir === "DOWN" && nextSta === "TWH") return true; 
-            return false;
-        }
-
-        function isTerminus(sta, dir) {
-            return (dir === "UP" && sta === "TSW") || (dir === "DOWN" && sta === "CEN");
-        }
-
-        function interpolateAlongLineString(coords, ratio) {
-            if (!coords || coords.length === 0) return null;
-            if (coords.length === 1) return [coords[0][1], coords[0][0]];
-            var targetIndex = Math.floor((coords.length - 1) * ratio);
-            var nextIndex = targetIndex + 1;
-            if (nextIndex >= coords.length) return [coords[coords.length - 1][1], coords[coords.length - 1][0]];
-            var p1 = coords[targetIndex];
-            var p2 = coords[nextIndex];
-            var segmentRatio = ((coords.length - 1) * ratio) - targetIndex;
-            return [p1[1] + (p2[1] - p1[1]) * segmentRatio, p1[0] + (p2[0] - p1[0]) * segmentRatio]; 
-        }
-    </script>
-</body>
-</html>
+            if (index === -1) return null
