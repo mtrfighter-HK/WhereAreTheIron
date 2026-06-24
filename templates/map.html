@@ -419,4 +419,25 @@
 
         function getPreviousStation(nextSta, direction) {
             var index = TWL_ORDER.indexOf(nextSta);
-            if (index === -1) return null
+            if (index === -1) return null;
+            if (direction === 'UP') { 
+                if (index > 0) return TWL_ORDER[index - 1];
+            }
+            if (direction === 'DOWN') { 
+                if (index < TWL_ORDER.length - 1) return TWL_ORDER[index + 1];
+            }
+            return null;
+        }
+
+        function isFirstTrackSegment(nextSta, dir) {
+            if (dir === "UP" && nextSta === "ADM") return true; 
+            if (dir === "DOWN" && nextSta === "TWH") return true; 
+            return false;
+        }
+
+        function isTerminus(sta, dir) {
+            return (dir === "UP" && sta === "TSW") || (dir === "DOWN" && sta === "CEN");
+        }
+    </script>
+</body>
+</html>
