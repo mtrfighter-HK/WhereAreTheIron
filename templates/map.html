@@ -2,7 +2,7 @@
 <html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
-    <title>MTR 實時列車地圖 - 多路線容錯修正版</title>
+    <title>MTR 實時列車地圖 - 樣式隔離修正版</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
@@ -15,6 +15,8 @@
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
         .nav-btn:hover { background: #eee; }
+        
+        /* 車站文字標籤 */
         .station-label {
             background: none !important; border: none !important; box-shadow: none !important;
             color: #111111; font-weight: bold; text-shadow: 1px 1px 2px #ffffff; font-size: 12px;
@@ -22,13 +24,20 @@
         .leaflet-tooltip-left::before, .leaflet-tooltip-right::before,
         .leaflet-tooltip-top::before, .leaflet-tooltip-bottom::before { display: none !important; }
 
-        .train-container {
-            width: 12px !important; height: 12px !important; display: flex; align-items: center; justify-content: center;
-            pointer-events: none;
+        /* 🎯 獨立火車容器與正圓形 CSS（完全不與 Leaflet SVG 車站混淆） */
+        .mtr-train-container {
+            width: 12px !important; height: 12px !important;
+            display: flex !important; align-items: center !important; justify-content: center !important;
+            pointer-events: none !important; /* 點擊穿透 */
+            background: transparent !important; border: none !important;
         }
-        .train-dot {
-            width: 10px !important; height: 10px !important; background-color: #ffffff; border-radius: 50% !important; 
-            box-sizing: border-box; box-shadow: 0 0 3px rgba(0,0,0,0.3); display: block;
+        .mtr-dynamic-train {
+            width: 10px !important; height: 10px !important;
+            background-color: #ffffff !important;
+            border-radius: 50% !important;
+            box-sizing: border-box !important;
+            box-shadow: 0 0 4px rgba(0,0,0,0.4) !important;
+            display: block !important;
         }
     </style>
 </head>
@@ -45,6 +54,7 @@
             attribution: '&copy; OpenStreetMap &copy; CARTO'
         }).addTo(map);
 
+        // 建立獨立圖層面板
         map.createPane('trackPane').style.zIndex = 450;   
         map.createPane('trainPane').style.zIndex = 500;   
         map.createPane('stationPane').style.zIndex = 550; 
@@ -58,11 +68,11 @@
         var activeTrains = {}; 
 
         const LINE_COLORS = {
-            "TWL": "#E2231A", // 荃灣線 - 紅色
-            "TKL": "#7A2682"  // 將軍澳線 - 紫色
+            "TWL": "#E2231A", // 紅色
+            "TKL": "#7A2682"  // 紫色
         };
 
-        // 1. 同步加載數據
+        // 1. 載入基礎數據
         Promise.all([
             fetch('/路線軌道檔/Track.TsuenWanLine.geojson').then(res => res.json()),
             fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94%2FTrack.TseungKwanOLine.geojson').then(res => res.json()),
@@ -72,6 +82,7 @@
 
             trackFeatures = [...twlTrack.features, ...tklTrack.features];
 
+            // 繪製地圖軌道線
             L.geoJSON(twlTrack, { style: { color: LINE_COLORS['TWL'], weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
             L.geoJSON(tklTrack, { style: { color: LINE_COLORS['TKL'], weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
 
@@ -81,31 +92,31 @@
                 });
             }
 
-            // 加強版車站解析：容錯大小寫
+            // 渲染車站點
             L.geoJSON(stationData, {
                 filter: f => {
-                    var code = f.properties.StationCode || f.properties.station_code || "";
-                    return code !== "" && code !== "NIL";
+                    var c = f.properties.StationCode || f.properties.station_code || "";
+                    return c !== "" && c !== "NIL";
                 },
                 pointToLayer: function (feature, latlng) {
                     var props = feature.properties;
                     var staCode = (props.StationCode || props.station_code || "").toUpperCase();
-                    
-                    // 容錯提取 Line / line 欄位
                     var rawLine = props.Line || props.line || "TWL";
                     var lineArr = String(rawLine).split(',').map(s => s.trim().toUpperCase());
                     
                     stationCoords[staCode] = [latlng.lat, latlng.lng];
                     stationLineMapping[staCode] = lineArr;
 
-                    // 🎯 修正車站點顏色判定：多過一條線（轉車站）用黑色，否則精準用該路線色
-                    var strokeColor = "#000000";
+                    // 🎯 恢復正常車站外框顏色邏輯
+                    var strokeColor = "#000000"; // 預設轉車站為黑色
                     if (lineArr.length === 1) {
                         strokeColor = LINE_COLORS[lineArr[0]] || "#000000";
                     }
 
+                    // 繪製車站外圈與內白點
                     var outerMarker = L.circleMarker(latlng, { radius: 6, color: strokeColor, fillColor: '#ffffff', fillOpacity: 1, weight: 2.5, pane: 'stationPane' }).addTo(map);
                     L.circleMarker(latlng, { radius: 2, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, weight: 1, pane: 'stationPane' }).addTo(map);
+                    
                     stationLayers[staCode] = outerMarker; 
                     return outerMarker; 
                 },
@@ -114,17 +125,17 @@
                     var staName = props["StationName:zh"] || props["station_name:zh"] || "未知車站";
                     if (staName.endsWith("站")) staName = staName.slice(0, -1);
                     layer.bindTooltip(staName, { permanent: true, direction: 'right', className: 'station-label', offset: [10, 0] });
-                    layer.bindPopup(`<b>${staName}</b><br>等待訊號更新...`);
+                    layer.bindPopup(`<b>${staName}</b><br>等待數據注入...`);
                 }
             }).addTo(map);
 
             processTrainSchedules();
             setInterval(processTrainSchedules, 10000);
 
-        }).catch(err => console.error("系統多路線初始化失敗:", err));
+        }).catch(err => console.error("多路線地圖加載失敗:", err));
 
 
-        // 2. 主調度邏輯
+        // 2. 實時列車調度器
         function processTrainSchedules() {
             fetch('/api/live')
                 .then(res => res.json())
@@ -162,18 +173,18 @@
                         var dest = currentTrain.dest || "";
 
                         var prevSta = getPreviousStation(currentSta, dir, line, dest); 
+                        if (!prevSta) return; // 找不到前置站跳過，防止不對應數據
+
                         var trainId = `${line}_${dir}_${prevSta}_${currentSta}`;
 
                         if (lastTrain) {
                             var lastTtnt = parseInt(lastTrain.ttnt);
                             if ((lastTtnt === 0 && currentTtnt > 0) || (isTerminus(currentSta, dir, line) && currentTtnt > lastTtnt)) {
-                                if (prevSta) {
-                                    clearPreviousBlockTrain(prevSta, dir, line);
-                                    launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line);
-                                }
+                                clearPreviousBlockTrain(prevSta, dir, line);
+                                launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line);
                             }
                         } else {
-                            if (prevSta && !activeTrains[trainId]) {
+                            if (!activeTrains[trainId]) {
                                 if (currentTtnt === 2 || currentTtnt === 3) {
                                     launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line);
                                 } else if (isFirstTrackSegment(currentSta, dir, line) && currentTtnt === 1) {
@@ -191,7 +202,7 @@
                         lastStationState[key] = currentTrain;
                     });
 
-                    // 更新氣泡窗
+                    // 更新氣泡彈窗
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
@@ -235,7 +246,7 @@
             if (activeTrains[oldTrainId]) activeTrains[oldTrainId].destroy();
         }
 
-        // 3. 虛擬列車容錯渲染類
+        // 3. 虛擬列車控制類
         class VirtualTrain {
             constructor(fromSta, toSta, direction, dest, line, isPreSpawn = false) {
                 this.fromSta = fromSta;
@@ -247,7 +258,7 @@
 
                 var geojsonDataDir = (direction === "UP") ? "Up" : "Down";
                 
-                // 🎯 核心容錯修正：將 GeoJSON 讀出來的所有欄位全部轉大寫做比對，防止找不倒軌道導致列車不出現
+                // 強效找尋軌道機制
                 this.trackFeature = trackFeatures.find(f => {
                     var fLine = (f.properties.line || f.properties.Line || "").toUpperCase();
                     var fDir = (f.properties.direction || f.properties.Direction || "");
@@ -256,10 +267,7 @@
                     return fLine === line && fDir.toUpperCase() === geojsonDataDir.toUpperCase() && fFrom === fromSta && fTo === toSta;
                 });
 
-                if (!this.trackFeature) {
-                    console.warn(`找不到對應軌道特徵: ${line} | ${geojsonDataDir} | ${fromSta} ➔ ${toSta}`);
-                    return;
-                }
+                if (!this.trackFeature) return;
                 
                 this.coords = this.trackFeature.geometry.coordinates;
                 this.spatialData = precomputeTrackDistances(this.coords);
@@ -271,10 +279,11 @@
                 this.inCompensationZone = false;
                 this.timer = null;
 
+                // 🎯 樣式隔離：強制注入客製化線條邊框顏色與專屬類名
                 var lineColor = LINE_COLORS[line] || "#E2231A";
                 this.iconElement = L.divIcon({ 
-                    className: 'train-container', 
-                    html: `<div class="train-dot" id="dot_${this.id}" style="border: 2px solid ${lineColor};"></div>`, 
+                    className: 'mtr-train-container', 
+                    html: `<div class="mtr-dynamic-train" id="dot_${this.id}" style="border: 2px solid ${lineColor} !important;"></div>`, 
                     iconSize: [12, 12], 
                     iconAnchor: [6, 6] 
                 });
@@ -426,4 +435,3 @@
     </script>
 </body>
 </html>
-         
