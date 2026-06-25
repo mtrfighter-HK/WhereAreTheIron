@@ -2,7 +2,7 @@
 <html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
-    <title>MTR 實時列車地圖 - 樣式隔離修正版</title>
+    <title>MTR 實時列車地圖 - 路線過濾修復版</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
@@ -16,7 +16,6 @@
         }
         .nav-btn:hover { background: #eee; }
         
-        /* 車站文字標籤 */
         .station-label {
             background: none !important; border: none !important; box-shadow: none !important;
             color: #111111; font-weight: bold; text-shadow: 1px 1px 2px #ffffff; font-size: 12px;
@@ -24,11 +23,11 @@
         .leaflet-tooltip-left::before, .leaflet-tooltip-right::before,
         .leaflet-tooltip-top::before, .leaflet-tooltip-bottom::before { display: none !important; }
 
-        /* 🎯 獨立火車容器與正圓形 CSS（完全不與 Leaflet SVG 車站混淆） */
+        /* 🎯 獨立火車樣式，確保不受任何外部干擾 */
         .mtr-train-container {
             width: 12px !important; height: 12px !important;
             display: flex !important; align-items: center !important; justify-content: center !important;
-            pointer-events: none !important; /* 點擊穿透 */
+            pointer-events: none !important;
             background: transparent !important; border: none !important;
         }
         .mtr-dynamic-train {
@@ -36,7 +35,7 @@
             background-color: #ffffff !important;
             border-radius: 50% !important;
             box-sizing: border-box !important;
-            box-shadow: 0 0 4px rgba(0,0,0,0.4) !important;
+            box-shadow: 0 0 4px rgba(0,0,0,0.5) !important;
             display: block !important;
         }
     </style>
@@ -54,7 +53,6 @@
             attribution: '&copy; OpenStreetMap &copy; CARTO'
         }).addTo(map);
 
-        // 建立獨立圖層面板
         map.createPane('trackPane').style.zIndex = 450;   
         map.createPane('trainPane').style.zIndex = 500;   
         map.createPane('stationPane').style.zIndex = 550; 
@@ -68,11 +66,11 @@
         var activeTrains = {}; 
 
         const LINE_COLORS = {
-            "TWL": "#E2231A", // 紅色
-            "TKL": "#7A2682"  // 紫色
+            "TWL": "#E2231A", // 荃灣線：紅色
+            "TKL": "#7A2682"  // 將軍澳線：紫色
         };
 
-        // 1. 載入基礎數據
+        // 1. 載入數據
         Promise.all([
             fetch('/路線軌道檔/Track.TsuenWanLine.geojson').then(res => res.json()),
             fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E8%B7%AF%E7%B7%9A%E8%BB%8C%E9%81%93%E6%AA%94%2FTrack.TseungKwanOLine.geojson').then(res => res.json()),
@@ -82,7 +80,6 @@
 
             trackFeatures = [...twlTrack.features, ...tklTrack.features];
 
-            // 繪製地圖軌道線
             L.geoJSON(twlTrack, { style: { color: LINE_COLORS['TWL'], weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
             L.geoJSON(tklTrack, { style: { color: LINE_COLORS['TKL'], weight: 4, opacity: 0.8 }, pane: 'trackPane' }).addTo(map);
 
@@ -92,28 +89,35 @@
                 });
             }
 
-            // 渲染車站點
+            // 🎯 核心過濾改動：只繪製包含 TWL 或 TKL 的車站，其餘路線車站直接忽略
             L.geoJSON(stationData, {
                 filter: f => {
-                    var c = f.properties.StationCode || f.properties.station_code || "";
-                    return c !== "" && c !== "NIL";
+                    var code = f.properties.StationCode || f.properties.station_code || "";
+                    if (code === "" || code === "NIL") return false;
+                    
+                    var rawLine = f.properties.Line || f.properties.line || "";
+                    var lineArr = String(rawLine).split(',').map(s => s.trim().toUpperCase());
+                    
+                    // 只要這個車站有牽涉到 TWL 或 TKL，就允許顯示
+                    return lineArr.includes("TWL") || lineArr.includes("TKL");
                 },
                 pointToLayer: function (feature, latlng) {
                     var props = feature.properties;
                     var staCode = (props.StationCode || props.station_code || "").toUpperCase();
-                    var rawLine = props.Line || props.line || "TWL";
-                    var lineArr = String(rawLine).split(',').map(s => s.trim().toUpperCase());
+                    var rawLine = props.Line || props.line || "";
+                    
+                    // 僅保留我們關心的線路做顏色判斷
+                    var lineArr = String(rawLine).split(',').map(s => s.trim().toUpperCase()).filter(l => l === "TWL" || l === "TKL");
                     
                     stationCoords[staCode] = [latlng.lat, latlng.lng];
                     stationLineMapping[staCode] = lineArr;
 
-                    // 🎯 恢復正常車站外框顏色邏輯
-                    var strokeColor = "#000000"; // 預設轉車站為黑色
+                    // 轉車站（同時有 TWL 和 TKL，例如中環/金鐘等未來擴展或現有轉車站）用黑色，否則精準用路線色
+                    var strokeColor = "#000000";
                     if (lineArr.length === 1) {
                         strokeColor = LINE_COLORS[lineArr[0]] || "#000000";
                     }
 
-                    // 繪製車站外圈與內白點
                     var outerMarker = L.circleMarker(latlng, { radius: 6, color: strokeColor, fillColor: '#ffffff', fillOpacity: 1, weight: 2.5, pane: 'stationPane' }).addTo(map);
                     L.circleMarker(latlng, { radius: 2, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, weight: 1, pane: 'stationPane' }).addTo(map);
                     
@@ -125,17 +129,17 @@
                     var staName = props["StationName:zh"] || props["station_name:zh"] || "未知車站";
                     if (staName.endsWith("站")) staName = staName.slice(0, -1);
                     layer.bindTooltip(staName, { permanent: true, direction: 'right', className: 'station-label', offset: [10, 0] });
-                    layer.bindPopup(`<b>${staName}</b><br>等待數據注入...`);
+                    layer.bindPopup(`<b>${staName}</b><br>數據同步中...`);
                 }
             }).addTo(map);
 
             processTrainSchedules();
             setInterval(processTrainSchedules, 10000);
 
-        }).catch(err => console.error("多路線地圖加載失敗:", err));
+        }).catch(err => console.error("地圖加載失敗:", err));
 
 
-        // 2. 實時列車調度器
+        // 2. 列車排程核心
         function processTrainSchedules() {
             fetch('/api/live')
                 .then(res => res.json())
@@ -173,7 +177,7 @@
                         var dest = currentTrain.dest || "";
 
                         var prevSta = getPreviousStation(currentSta, dir, line, dest); 
-                        if (!prevSta) return; // 找不到前置站跳過，防止不對應數據
+                        if (!prevSta) return; 
 
                         var trainId = `${line}_${dir}_${prevSta}_${currentSta}`;
 
@@ -202,7 +206,7 @@
                         lastStationState[key] = currentTrain;
                     });
 
-                    // 更新氣泡彈窗
+                    // 更新 Popup 資訊
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
@@ -246,7 +250,7 @@
             if (activeTrains[oldTrainId]) activeTrains[oldTrainId].destroy();
         }
 
-        // 3. 虛擬列車控制類
+        // 3. 列車渲染器
         class VirtualTrain {
             constructor(fromSta, toSta, direction, dest, line, isPreSpawn = false) {
                 this.fromSta = fromSta;
@@ -258,7 +262,6 @@
 
                 var geojsonDataDir = (direction === "UP") ? "Up" : "Down";
                 
-                // 強效找尋軌道機制
                 this.trackFeature = trackFeatures.find(f => {
                     var fLine = (f.properties.line || f.properties.Line || "").toUpperCase();
                     var fDir = (f.properties.direction || f.properties.Direction || "");
@@ -279,11 +282,11 @@
                 this.inCompensationZone = false;
                 this.timer = null;
 
-                // 🎯 樣式隔離：強制注入客製化線條邊框顏色與專屬類名
+                // 使用完全隔離的 CSS class 與獨立行內 style 注入邊框顏色
                 var lineColor = LINE_COLORS[line] || "#E2231A";
                 this.iconElement = L.divIcon({ 
                     className: 'mtr-train-container', 
-                    html: `<div class="mtr-dynamic-train" id="dot_${this.id}" style="border: 2px solid ${lineColor} !important;"></div>`, 
+                    html: `<div class="mtr-dynamic-train" style="border: 2px solid ${lineColor} !important;"></div>`, 
                     iconSize: [12, 12], 
                     iconAnchor: [6, 6] 
                 });
