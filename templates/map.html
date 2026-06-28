@@ -304,7 +304,7 @@
             if (activeTrains[oldTrainId]) activeTrains[oldTrainId].destroy();
         }
 
-        // 3. 虛擬列車移動渲染器
+           // 3. 虛擬列車移動渲染器
         class VirtualTrain {
             constructor(fromSta, toSta, direction, dest, line) {
                 this.fromSta = fromSta;
@@ -320,7 +320,8 @@
                 // 比對軌道
                 this.trackFeature = trackFeatures.find(f => {
                     var props = f.properties || {};
-                    var fLine = (props.line || props.Line || "").toUpperCase().trim();
+                    // 🌟 這裡加上了 props.ref，完美對接你的 GeoJSON 格式！
+                    var fLine = (props.ref || props.line || props.Line || "").toUpperCase().trim();
                     var fDir = (props.direction || props.Direction || "").toUpperCase().trim();
                     var fFrom = (props.from || props.From || "").toUpperCase().trim();
                     var fTo = (props.to || props.To || "").toUpperCase().trim();
@@ -328,7 +329,6 @@
                 });
 
                 if (!this.trackFeature) {
-                    // 🎯 將找不到軌道的錯誤直接推送到手機畫面！
                     screenLog(`❌ 軌道匹配失敗: ${line} | ${geojsonDataDir} | ${fromSta}➔${toSta}`, "error");
                     return;
                 }
@@ -355,6 +355,7 @@
                 this.startCruise();
                 this.success = true;
             }
+            // ... 底下保持不變 ...
 
             updatePopupText(statusHtml) {
                 this.marker.bindPopup(`<b>路線:</b> ${this.line}<br><b>目的地:</b> ${this.dest}<br><b>區間:</b> ${this.fromSta} ➔ ${this.toSta}<br><b>狀態:</b> ${statusHtml}`);
