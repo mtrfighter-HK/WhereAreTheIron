@@ -2,7 +2,7 @@
 <html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
-    <title>MTR 實時列車地圖 - 手機調試版</title>
+    <title>MTR 實時列車地圖 - 平滑調度優化版</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
@@ -16,7 +16,7 @@
         }
         .nav-btn:hover { background: #eee; }
         
-        /* 📱 手機專用實時日誌面板樣式 */
+        /* 手機專用實時日誌面板樣式 */
         #debug-panel {
             position: absolute; bottom: 10px; left: 10px; width: calc(100% - 40px); max-height: 120px;
             background: rgba(0, 0, 0, 0.85); color: #00ff00; font-family: monospace; font-size: 11px;
@@ -57,7 +57,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // 🔍 在手機螢幕印出日誌的工具函式
+        // 在手機螢幕印出日誌的工具函式
         function screenLog(msg, type = 'info') {
             const panel = document.getElementById('debug-panel');
             if (!panel) return;
@@ -66,15 +66,14 @@
             if (type === 'success') cssClass = 'class="log-succ"';
             if (type === 'warn') cssClass = 'class="log-warn"';
             
-            // 限制最多顯示 30 行，防止手機卡頓
             const lines = panel.innerHTML.split('<br>');
             if (lines.length > 30) lines.shift();
             
             panel.innerHTML = lines.join('<br>') + `<span ${cssClass}>[${new Date().toLocaleTimeString()}] ${msg}</span><br>`;
-            panel.scrollTop = panel.scrollHeight; // 自動捲動到最底
+            panel.scrollTop = panel.scrollHeight; 
         }
 
-        // 全域捕捉未處理的 JS 錯誤並彈出到螢幕
+        // 全局捕捉未處理的 JS 錯誤
         window.onerror = function(message, source, lineno, colno, error) {
             screenLog(`崩潰全局錯誤: ${message} (第${lineno}行)`, 'error');
             return false;
@@ -189,7 +188,7 @@
                     var currentGroup = {};
                     var stationSchedules = {};
 
-                    // 🎯 使用 try-catch 保護外層遍歷，確保其中一班車出事不會全盤崩潰
+                    // 數據分組與清洗
                     trainData.forEach(train => {
                         try {
                             var line = (train.line || "").toUpperCase().trim();
@@ -210,6 +209,7 @@
 
                     let spawnedCount = 0;
 
+                    // 核心調度邏輯
                     Object.keys(currentGroup).forEach(key => {
                         try {
                             var currentTrain = currentGroup[key];
@@ -222,25 +222,23 @@
                             var dest = currentTrain.dest || "";
 
                             var prevSta = getPreviousStation(currentSta, dir, line, dest); 
-                            if (!prevSta) {
-                                // 🔍 如果算不出上一個站，喺畫面上印出提示協助排查
-                                if(line === "TKL") {
-                                    console.log(`邊界無前站: 站=${currentSta}, 方向=${dir}, 目的地=${dest}`);
-                                }
-                                return; 
-                            } 
+                            if (!prevSta) return; 
 
                             var trainId = `${line}_${dir}_${prevSta}_${currentSta}`;
 
                             if (lastTrain) {
                                 var lastTtnt = parseInt(lastTrain.ttnt);
+                                // 🌟 嚴格控制發車訊號：當上一站車進站了(ttnt從0變大)，才允許派新車從0%出發移動
                                 if ((lastTtnt === 0 && currentTtnt > 0) || (isTerminus(currentSta, dir, line) && currentTtnt > lastTtnt)) {
                                     clearPreviousBlockTrain(prevSta, dir, line);
                                     if(launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line)) spawnedCount++;
                                 }
                             } else {
+                                // 🌟 初次進入頁面時的防禦性載入：若地圖沒有這班車，且時間非進站中，合理過濾發車
                                 if (!activeTrains[trainId]) {
-                                    if (currentTtnt >= 1 && currentTtnt <= 4) {
+                                    var timeKey = `${prevSta}_${currentSta}`;
+                                    var expectedMin = Math.ceil((travelTimeConfig[timeKey] || 110) / 60);
+                                    if (currentTtnt >= expectedMin && currentTtnt <= 4) {
                                         if(launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line)) spawnedCount++;
                                     }
                                 }
@@ -253,14 +251,14 @@
                                 }
                             }
                             lastStationState[key] = currentTrain;
-                        } catch(err) { screenLog("核心邏輯執行異常: " + err.message, "error"); }
+                        } catch(err) { screenLog("核心邏輯異常: " + err.message, "error"); }
                     });
 
                     if(spawnedCount > 0) {
                         screenLog(`🔄 調度完成：本次刷新生成 ${spawnedCount} 班行駛列車點`, "success");
                     }
 
-                    // 更新車站 Popup
+                    // 更新車站 Popup 內容
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
@@ -304,7 +302,7 @@
             if (activeTrains[oldTrainId]) activeTrains[oldTrainId].destroy();
         }
 
-           // 3. 虛擬列車移動渲染器
+        // 3. 虛擬列車移動渲染器
         class VirtualTrain {
             constructor(fromSta, toSta, direction, dest, line) {
                 this.fromSta = fromSta;
@@ -317,10 +315,9 @@
 
                 var geojsonDataDir = (direction === "UP") ? "UP" : "DOWN";
                 
-                // 比對軌道
+                // 軌道幾何匹配 (相容 props.ref 欄位)
                 this.trackFeature = trackFeatures.find(f => {
                     var props = f.properties || {};
-                    // 🌟 這裡加上了 props.ref，完美對接你的 GeoJSON 格式！
                     var fLine = (props.ref || props.line || props.Line || "").toUpperCase().trim();
                     var fDir = (props.direction || props.Direction || "").toUpperCase().trim();
                     var fFrom = (props.from || props.From || "").toUpperCase().trim();
@@ -355,7 +352,6 @@
                 this.startCruise();
                 this.success = true;
             }
-            // ... 底下保持不變 ...
 
             updatePopupText(statusHtml) {
                 this.marker.bindPopup(`<b>路線:</b> ${this.line}<br><b>目的地:</b> ${this.dest}<br><b>區間:</b> ${this.fromSta} ➔ ${this.toSta}<br><b>狀態:</b> ${statusHtml}`);
@@ -364,13 +360,21 @@
             startCruise() {
                 if (this.timer) clearInterval(this.timer);
                 this.startTime = Date.now();
+                
+                // 🌟 【重大優化】將原先 1000ms 大幅提高到 50ms（每秒 20 次精細採樣）
+                // 徹底解決列車在軌道點密集、稀疏地段時快慢不一的頓挫感，保證完美均速移動
                 this.timer = setInterval(() => {
                     var elapsed = Date.now() - this.startTime;
                     this.ratio = Math.min(1.0, elapsed / this.totalDuration);
+                    
                     var latlng = interpolateByTrueDistance(this.spatialData, this.ratio);
                     if (latlng) this.marker.setLatLng(latlng);
-                    if (this.ratio >= 1.0) { clearInterval(this.timer); this.arrive(); }
-                }, 1000);
+                    
+                    if (this.ratio >= 1.0) { 
+                        clearInterval(this.timer); 
+                        this.arrive(); 
+                    }
+                }, 50); 
             }
 
             enterCompensation(startRatio = 0.0) {
@@ -390,7 +394,7 @@
                         var latlng = interpolateByTrueDistance(this.spatialData, this.ratio);
                         if (latlng) this.marker.setLatLng(latlng);
                     }
-                }, 200); 
+                }, 50); // 進站補償同步提升至高精度
             }
 
             arrive() {
@@ -407,6 +411,7 @@
             }
         }
 
+        // 幾何線性距離高精度計算
         function precomputeTrackDistances(coords) {
             var points = coords.map(c => [c[1], c[0]]);
             var distances = [0]; var totalDist = 0;
