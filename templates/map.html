@@ -2,7 +2,7 @@
 <html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
-    <title>MTR 實時列車地圖 - 平滑調度優化版</title>
+    <title>MTR 實時列車地圖 - 時間校正演算法版</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
@@ -16,7 +16,7 @@
         }
         .nav-btn:hover { background: #eee; }
         
-        /* 手機專用實時日誌面板樣式 */
+        /* 手機專用實時日誌面板 */
         #debug-panel {
             position: absolute; bottom: 10px; left: 10px; width: calc(100% - 40px); max-height: 120px;
             background: rgba(0, 0, 0, 0.85); color: #00ff00; font-family: monospace; font-size: 11px;
@@ -50,14 +50,11 @@
 <body>
 
     <a href="/admin" class="nav-btn">📊 前往數據後台</a>
-    
     <div id="debug-panel">📱 系統日誌初始化中...<br></div>
-    
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // 在手機螢幕印出日誌的工具函式
         function screenLog(msg, type = 'info') {
             const panel = document.getElementById('debug-panel');
             if (!panel) return;
@@ -73,7 +70,6 @@
             panel.scrollTop = panel.scrollHeight; 
         }
 
-        // 全局捕捉未處理的 JS 錯誤
         window.onerror = function(message, source, lineno, colno, error) {
             screenLog(`崩潰全局錯誤: ${message} (第${lineno}行)`, 'error');
             return false;
@@ -99,7 +95,6 @@
 
         const LINE_COLORS = { "TWL": "#E2231A", "TKL": "#7A2682" };
 
-        // 1. 核心異步載入流程
         async function initApp() {
             screenLog("開始載入基礎 GeoJSON 數據...", "info");
 
@@ -152,43 +147,35 @@
                 screenLog(`將軍澳線軌道載入成功 (${tklTrack.features.length}段)`, "success");
             } catch (e) { screenLog("將軍澳線軌道失敗: " + e.message, "error"); }
 
-            // D. 行車時間
+            // D. 行車時間配置
             try {
                 const res = await fetch('https://raw.githubusercontent.com/mtrfighter-HK/WhereAreTheIron/main/%E7%B3%BB%E7%B5%B1%E5%9F%BA%E6%9C%AC%E6%AA%94%2FTravelTimeConfig.json');
                 const timeConfig = await res.json();
                 if (timeConfig && timeConfig.travel_times) {
                     timeConfig.travel_times.forEach(t => {
-                        travelTimeConfig[`${t.from.toUpperCase()}_${t.to.toUpperCase()}`] = t.run_time_sec || t.duration_sec || 120; 
+                        travelTimeConfig[`${t.from.toUpperCase()}_${t.to.toUpperCase()}`] = t.run_time_sec || t.duration_sec || 110; 
                     });
                 }
                 screenLog("行車時間配置加載成功", "success");
             } catch (e) { screenLog("時間配置載入跳過", "warn"); }
 
-            // 啟動實時數據輪詢
             processTrainSchedules();
             setInterval(processTrainSchedules, 6000); 
-            screenLog("實時列車調度器已啟動(每6秒刷新)", "info");
+            screenLog("配置檔核心調度器已啟動(每6秒刷新)", "info");
         }
 
-        // 2. 實時列車數據處理與調度
         function processTrainSchedules() {
             fetch('/api/live')
                 .then(res => res.json())
                 .then(response => {
-                    if (response.status !== "success") {
-                        screenLog("API 回傳失敗狀態", "warn");
-                        return;
-                    }
+                    if (response.status !== "success") return;
                     var trainData = response.data;
-                    if(!trainData || trainData.length === 0) {
-                        screenLog("API 活數據為空陣列", "warn");
-                        return;
-                    }
+                    if(!trainData || trainData.length === 0) return;
 
                     var currentGroup = {};
                     var stationSchedules = {};
 
-                    // 數據分組與清洗
+                    // 分組清洗
                     trainData.forEach(train => {
                         try {
                             var line = (train.line || "").toUpperCase().trim();
@@ -204,12 +191,12 @@
                             if (!currentGroup[key] || parseInt(train.ttnt) < parseInt(currentGroup[key].ttnt)) {
                                 currentGroup[key] = train; 
                             }
-                        } catch(err) { screenLog("分組數據出錯: " + err.message, "error"); }
+                        } catch(err) { console.error(err); }
                     });
 
                     let spawnedCount = 0;
 
-                    // 核心調度邏輯
+                    // 🌟 新一代反推與校正調度核心
                     Object.keys(currentGroup).forEach(key => {
                         try {
                             var currentTrain = currentGroup[key];
@@ -225,25 +212,46 @@
                             if (!prevSta) return; 
 
                             var trainId = `${line}_${dir}_${prevSta}_${currentSta}`;
+                            var timeKey = `${prevSta}_${currentSta}`;
+                            var totalConfigSec = travelTimeConfig[timeKey] || 110; // 取出配置檔固定純行車時間
 
                             if (lastTrain) {
                                 var lastTtnt = parseInt(lastTrain.ttnt);
-                                // 🌟 嚴格控制發車訊號：當上一站車進站了(ttnt從0變大)，才允許派新車從0%出發移動
+                                // A. 收到明確的發車訊號（ttnt 從進站中的 0 突變為大於 0）
                                 if ((lastTtnt === 0 && currentTtnt > 0) || (isTerminus(currentSta, dir, line) && currentTtnt > lastTtnt)) {
                                     clearPreviousBlockTrain(prevSta, dir, line);
-                                    if(launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line)) spawnedCount++;
+                                    // 強制從 0% 位置起跑（傳入進度偏移量為 0 秒）
+                                    if(launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line, 0)) spawnedCount++;
                                 }
                             } else {
-                                // 🌟 初次進入頁面時的防禦性載入：若地圖沒有這班車，且時間非進站中，合理過濾發車
+                                // B. 首次載入或手動重新整理頁面時的「配置檔反推校正」
                                 if (!activeTrains[trainId]) {
-                                    var timeKey = `${prevSta}_${currentSta}`;
-                                    var expectedMin = Math.ceil((travelTimeConfig[timeKey] || 110) / 60);
-                                    if (currentTtnt >= expectedMin && currentTtnt <= 4) {
-                                        if(launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line)) spawnedCount++;
+                                    // 當 ttnt = 1 代表剩下最多 60 秒到站
+                                    if (currentTtnt === 1) {
+                                        var remainingSec = 60;
+                                        // 如果配置檔行車時間（如87秒）大於剩餘時間（60秒），說明車開出了 27 秒
+                                        if (totalConfigSec > remainingSec) {
+                                            var elapsedOffsetSec = totalConfigSec - remainingSec; 
+                                            if(launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line, elapsedOffsetSec)) spawnedCount++;
+                                        } else {
+                                            // 容錯：若時間極短則從起點出發
+                                            if(launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line, 0)) spawnedCount++;
+                                        }
+                                    } 
+                                    // 當 ttnt = 2 代表剩下最多 120 秒到站
+                                    else if (currentTtnt === 2) {
+                                        var remainingSec = 120;
+                                        // 如果總行車時間小於 120 秒，代表車輛必定還在上一站，不應提早發車
+                                        if (totalConfigSec > remainingSec) {
+                                            var elapsedOffsetSec = totalConfigSec - remainingSec;
+                                            if(launchVirtualTrain(prevSta, currentSta, dir, currentTrain.dest, line, elapsedOffsetSec)) spawnedCount++;
+                                        }
+                                        // 🌟 如果配置檔行車時間小於 120 秒（例如 87 秒），說明火車還沒開出，完美阻斷提早發車！
                                     }
                                 }
                             }
 
+                            // 補償進站控制
                             if (activeTrains[trainId]) {
                                 var runningTrain = activeTrains[trainId];
                                 if (currentTtnt === 0 && !runningTrain.inCompensationZone) {
@@ -251,14 +259,14 @@
                                 }
                             }
                             lastStationState[key] = currentTrain;
-                        } catch(err) { screenLog("核心邏輯異常: " + err.message, "error"); }
+                        } catch(err) { screenLog("調度核心異常: " + err.message, "error"); }
                     });
 
                     if(spawnedCount > 0) {
-                        screenLog(`🔄 調度完成：本次刷新生成 ${spawnedCount} 班行駛列車點`, "success");
+                        screenLog(`🔄 校正調度完成：成功生成/校正 ${spawnedCount} 班列車`, "success");
                     }
 
-                    // 更新車站 Popup 內容
+                    // 更新車站 Popup
                     Object.keys(stationLayers).forEach(staCode => {
                         var marker = stationLayers[staCode];
                         var schedules = stationSchedules[staCode] || [];
@@ -304,7 +312,7 @@
 
         // 3. 虛擬列車移動渲染器
         class VirtualTrain {
-            constructor(fromSta, toSta, direction, dest, line) {
+            constructor(fromSta, toSta, direction, dest, line, elapsedOffsetSec = 0) {
                 this.fromSta = fromSta;
                 this.toSta = toSta;
                 this.direction = direction;
@@ -315,7 +323,6 @@
 
                 var geojsonDataDir = (direction === "UP") ? "UP" : "DOWN";
                 
-                // 軌道幾何匹配 (相容 props.ref 欄位)
                 this.trackFeature = trackFeatures.find(f => {
                     var props = f.properties || {};
                     var fLine = (props.ref || props.line || props.Line || "").toUpperCase().trim();
@@ -332,10 +339,12 @@
                 
                 this.coords = this.trackFeature.geometry.coordinates;
                 this.spatialData = precomputeTrackDistances(this.coords);
+                
                 var timeKey = `${fromSta}_${toSta}`;
-                this.totalDuration = (travelTimeConfig[timeKey] || 110) * 1000; 
+                this.totalDuration = (travelTimeConfig[timeKey] || 110) * 1000; // 毫秒單位
 
-                this.startTime = Date.now();
+                // 🌟 設定出發時間：扣除反推算出的已行駛偏移秒數
+                this.startTime = Date.now() - (elapsedOffsetSec * 1000);
                 this.ratio = 0.0;
                 this.inCompensationZone = false;
                 this.timer = null;
@@ -347,8 +356,12 @@
                     iconSize: [14, 14], iconAnchor: [7, 7] 
                 });
 
-                this.marker = L.marker(this.spatialData.points[0], { icon: this.iconElement, pane: 'trainPane' }).addTo(map);
-                this.updatePopupText("自動巡航中");
+                // 根據初始反推出的比率計算初始經緯度，防止火車從起點「閃現」到路段中間
+                var initialRatio = Math.min(1.0, (elapsedOffsetSec * 1000) / this.totalDuration);
+                var initialLatLng = interpolateByTrueDistance(this.spatialData, initialRatio);
+
+                this.marker = L.marker(initialLatLng || this.spatialData.points[0], { icon: this.iconElement, pane: 'trainPane' }).addTo(map);
+                this.updatePopupText("基礎時間巡航中");
                 this.startCruise();
                 this.success = true;
             }
@@ -359,10 +372,8 @@
 
             startCruise() {
                 if (this.timer) clearInterval(this.timer);
-                this.startTime = Date.now();
                 
-                // 🌟 【重大優化】將原先 1000ms 大幅提高到 50ms（每秒 20 次精細採樣）
-                // 徹底解決列車在軌道點密集、稀疏地段時快慢不一的頓挫感，保證完美均速移動
+                // 🌟 每 50ms 均速微步進採樣，徹底拉平點密疏造成的速度不均
                 this.timer = setInterval(() => {
                     var elapsed = Date.now() - this.startTime;
                     this.ratio = Math.min(1.0, elapsed / this.totalDuration);
@@ -394,7 +405,7 @@
                         var latlng = interpolateByTrueDistance(this.spatialData, this.ratio);
                         if (latlng) this.marker.setLatLng(latlng);
                     }
-                }, 50); // 進站補償同步提升至高精度
+                }, 50); 
             }
 
             arrive() {
@@ -411,7 +422,6 @@
             }
         }
 
-        // 幾何線性距離高精度計算
         function precomputeTrackDistances(coords) {
             var points = coords.map(c => [c[1], c[0]]);
             var distances = [0]; var totalDist = 0;
@@ -436,10 +446,10 @@
             return pts[pts.length - 1];
         }
 
-        function launchVirtualTrain(fromSta, toSta, dir, dest, line) {
+        function launchVirtualTrain(fromSta, toSta, dir, dest, line, offsetSec = 0) {
             var trainId = `${line}_${dir}_${fromSta}_${toSta}`;
             if (activeTrains[trainId]) activeTrains[trainId].destroy();
-            var vt = new VirtualTrain(fromSta, toSta, dir, dest, line);
+            var vt = new VirtualTrain(fromSta, toSta, dir, dest, line, offsetSec);
             if(vt.success) {
                 activeTrains[trainId] = vt;
                 return true;
